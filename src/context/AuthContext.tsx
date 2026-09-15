@@ -61,7 +61,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       await signInWithPopup(auth, googleProvider);
     } catch (err: any) {
       console.error('Google Sign-In Error:', err);
-      if (err?.code === 'auth/popup-closed-by-user') {
+      if (err?.code === 'auth/unauthorized-domain') {
+        setError('auth/unauthorized-domain');
+      } else if (err?.code === 'auth/popup-closed-by-user') {
         setError('O login com Google foi cancelado antes de concluir.');
       } else if (err?.code === 'auth/popup-blocked') {
         setError('A janela pop-up do Google foi bloqueada pelo navegador. Permita pop-ups para fazer login.');
