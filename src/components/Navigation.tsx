@@ -47,7 +47,7 @@ export const Navigation: React.FC<NavigationProps> = ({
     },
     {
       id: 'cartoes' as MenuTab,
-      label: 'Cartões de Créditos',
+      label: 'Cartões de Crédito',
       icon: CreditCard,
       desc: 'Faturas, Limites & Vencimentos',
     },
@@ -60,44 +60,44 @@ export const Navigation: React.FC<NavigationProps> = ({
   ];
 
   return (
-    <header className="sticky top-0 z-40 bg-[#070709]/95 backdrop-blur-md border-b border-zinc-800">
+    <header className="sticky top-0 z-40 bg-[#070709]/95 backdrop-blur-md border-b border-zinc-800/90 shadow-lg">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex flex-col lg:flex-row items-center justify-between gap-4 py-3">
+        <div className="flex flex-col lg:flex-row items-center justify-between gap-3 lg:gap-4 py-2.5 sm:py-3">
           {/* Brand Logo & Name */}
-          <div className="flex items-center justify-between w-full lg:w-auto">
-            <div className="flex items-center gap-3">
-              <div className="relative">
-                <div className="w-10 h-10 rounded-xl bg-[#00ff7f]/15 border border-[#00ff7f]/40 flex items-center justify-center text-[#00ff7f] shadow-lg shadow-[#00ff7f]/20">
+          <div className="flex items-center justify-between w-full lg:w-auto gap-3">
+            <div className="flex items-center gap-3 shrink-0">
+              <div className="relative shrink-0">
+                <div className="w-10 h-10 rounded-xl bg-[#00ff7f]/10 border border-[#00ff7f]/30 flex items-center justify-center text-[#00ff7f] shadow-md shadow-[#00ff7f]/10">
                   <Wallet className="w-5 h-5 text-[#00ff7f]" />
                 </div>
-                <span className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-[#00ff7f] ring-2 ring-black animate-pulse" />
+                <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-[#00ff7f] ring-2 ring-[#070709]" />
               </div>
-              <div>
-                <div className="flex items-center gap-2">
-                  <h1 className="text-base sm:text-lg font-extrabold tracking-tight text-white flex items-center gap-1.5">
-                    Sistema <span className="neon-text-green">Cabe no bolso</span>
+              <div className="flex flex-col justify-center shrink-0">
+                <div className="flex items-center gap-2 flex-nowrap">
+                  <h1 className="text-base sm:text-lg font-black tracking-tight text-white whitespace-nowrap leading-tight">
+                    Sistema <span className="text-[#00ff7f]">Cabe no Bolso</span>
                   </h1>
-                  <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-[#00ff7f]/10 text-[#00ff7f] border border-[#00ff7f]/30">
+                  <span className="text-[10px] font-extrabold uppercase tracking-wider px-1.5 py-0.5 rounded-md bg-[#00ff7f]/15 text-[#00ff7f] border border-[#00ff7f]/30 shrink-0 leading-none">
                     PRO
                   </span>
                 </div>
-                <div className="flex items-center gap-2 text-[11px] text-zinc-400">
+                <div className="flex items-center gap-2 text-[11px] text-zinc-400 whitespace-nowrap mt-0.5 leading-tight">
                   <span>Finanças Pessoais</span>
-                  <span>•</span>
-                  <span className="flex items-center gap-1 text-[#00ff7f]/90">
-                    <Cloud className={`w-3 h-3 ${isSyncing ? 'animate-pulse text-amber-400' : ''}`} />
-                    {isSyncing ? 'Sincronizando...' : 'Firebase Conectado'}
+                  <span className="text-zinc-600 font-bold">•</span>
+                  <span className={`inline-flex items-center gap-1 font-medium ${isSyncing ? 'text-amber-400' : 'text-[#00ff7f]'}`}>
+                    <Cloud className={`w-3 h-3 ${isSyncing ? 'animate-pulse' : ''}`} />
+                    <span>{isSyncing ? 'Sincronizando...' : 'Firebase Conectado'}</span>
                   </span>
                 </div>
               </div>
             </div>
 
             {/* Mobile User Profile Button */}
-            <div className="flex lg:hidden items-center gap-2">
+            <div className="flex lg:hidden items-center gap-2 shrink-0">
               {isAdmin && (
                 <button
                   onClick={onOpenWhitelistModal}
-                  className="p-2 rounded-xl bg-[#00ff7f]/15 border border-[#00ff7f]/40 text-[#00ff7f] text-xs flex items-center gap-1 font-bold"
+                  className="p-2 rounded-xl bg-[#00ff7f]/15 border border-[#00ff7f]/40 text-[#00ff7f] text-xs flex items-center gap-1 font-bold cursor-pointer"
                   title="Gerenciar E-mails Autorizados"
                 >
                   <Shield className="w-3.5 h-3.5" />
@@ -107,7 +107,7 @@ export const Navigation: React.FC<NavigationProps> = ({
               {user ? (
                 <button
                   onClick={logout}
-                  className="p-2 rounded-xl bg-zinc-800/80 hover:bg-zinc-700 text-zinc-300 hover:text-rose-400 text-xs flex items-center gap-1.5"
+                  className="p-2 rounded-xl bg-zinc-800/80 hover:bg-zinc-700 text-zinc-300 hover:text-rose-400 text-xs flex items-center gap-1.5 cursor-pointer"
                   title={`Sair (${user.email})`}
                 >
                   <LogOut className="w-4 h-4" />
@@ -115,7 +115,7 @@ export const Navigation: React.FC<NavigationProps> = ({
               ) : (
                 <button
                   onClick={onOpenLoginModal}
-                  className="px-2.5 py-1.5 rounded-xl bg-[#00ff7f] text-black font-bold text-xs"
+                  className="px-2.5 py-1.5 rounded-xl bg-[#00ff7f] hover:bg-[#10ef80] text-black font-bold text-xs cursor-pointer"
                 >
                   Entrar
                 </button>
@@ -124,7 +124,7 @@ export const Navigation: React.FC<NavigationProps> = ({
           </div>
 
           {/* Navigation Menus */}
-          <nav className="flex items-center gap-1.5 sm:gap-2 p-1.5 rounded-2xl bg-[#121216] border border-zinc-800/80 overflow-x-auto max-w-full">
+          <nav className="flex items-center gap-1 sm:gap-1.5 p-1 sm:p-1.5 rounded-2xl bg-[#111115] border border-zinc-800 overflow-x-auto max-w-full shrink-0">
             {navItems.map((item) => {
               const Icon = item.icon;
               const isActive = activeTab === item.id;
@@ -134,9 +134,9 @@ export const Navigation: React.FC<NavigationProps> = ({
                   key={item.id}
                   id={`nav-tab-${item.id}`}
                   onClick={() => onTabChange(item.id)}
-                  className={`relative flex items-center gap-2 px-3 sm:px-3.5 py-2 rounded-xl text-xs sm:text-sm font-semibold transition-all whitespace-nowrap ${
+                  className={`relative flex items-center gap-2 px-3 sm:px-3.5 py-2 rounded-xl text-xs sm:text-sm font-semibold transition-all whitespace-nowrap cursor-pointer ${
                     isActive
-                      ? 'bg-[#00ff7f] text-black shadow-lg shadow-[#00ff7f]/25 font-bold'
+                      ? 'bg-[#00ff7f] text-black shadow-md shadow-[#00ff7f]/20 font-bold'
                       : 'text-zinc-400 hover:text-white hover:bg-zinc-800/60'
                   }`}
                 >

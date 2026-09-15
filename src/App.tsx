@@ -28,7 +28,9 @@ function MainApp() {
     isLoading: dataLoading,
     isSyncing,
     addTransaction,
+    addTransactionsBatch,
     updateTransaction,
+    updateTransactionWithReplication,
     deleteTransaction,
     toggleTransactionStatus,
     addTag,
@@ -101,6 +103,9 @@ function MainApp() {
                 tags={tags}
                 cards={cards}
                 onAddTransaction={addTransaction}
+                onAddTransactionsBatch={addTransactionsBatch}
+                onUpdateTransaction={updateTransaction}
+                onUpdateTransactionWithReplication={updateTransactionWithReplication}
                 onDeleteTransaction={deleteTransaction}
                 onToggleStatus={toggleTransactionStatus}
                 onAddTag={addTag}

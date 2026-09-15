@@ -13,6 +13,29 @@ export const MONTH_NAMES = [
   'Dezembro',
 ] as const;
 
+export const MONTH_ABBR = [
+  'Jan',
+  'Fev',
+  'Mar',
+  'Abr',
+  'Mai',
+  'Jun',
+  'Jul',
+  'Ago',
+  'Set',
+  'Out',
+  'Nov',
+  'Dez',
+] as const;
+
+export const buildClampedDate = (year: number, monthIndex: number, day: number): string => {
+  const maxDays = new Date(year, monthIndex + 1, 0).getDate();
+  const clampedDay = Math.min(Math.max(1, day), maxDays);
+  const mStr = String(monthIndex + 1).padStart(2, '0');
+  const dStr = String(clampedDay).padStart(2, '0');
+  return `${year}-${mStr}-${dStr}`;
+};
+
 export const formatCurrency = (value: number): string => {
   if (isNaN(value)) return 'R$ 0,00';
   return new Intl.NumberFormat('pt-BR', {

@@ -17,6 +17,7 @@ import {
   AlertTriangle,
   Info,
   SlidersHorizontal,
+  Pencil,
 } from 'lucide-react';
 import {
   Transaction,
@@ -41,6 +42,14 @@ interface BudgetViewProps {
   tags: TagItem[];
   cards: CreditCard[];
   onAddTransaction: (tx: Omit<Transaction, 'id'>) => void;
+  onAddTransactionsBatch?: (txs: Omit<Transaction, 'id'>[]) => void;
+  onUpdateTransaction?: (id: string, updated: Partial<Transaction>) => void;
+  onUpdateTransactionWithReplication?: (
+    id: string,
+    updated: Omit<Transaction, 'id'>,
+    replicateMonths: { year: number; month: number }[],
+    originalName?: string
+  ) => void;
   onDeleteTransaction: (id: string) => void;
   onToggleStatus: (id: string) => void;
   onAddTag: (name: string, targetType: TransactionType) => void;
@@ -55,6 +64,9 @@ export const BudgetView: React.FC<BudgetViewProps> = ({
   tags,
   cards,
   onAddTransaction,
+  onAddTransactionsBatch,
+  onUpdateTransaction,
+  onUpdateTransactionWithReplication,
   onDeleteTransaction,
   onToggleStatus,
   onAddTag,
@@ -75,6 +87,7 @@ export const BudgetView: React.FC<BudgetViewProps> = ({
   // Modals state
   const [isTransactionModalOpen, setIsTransactionModalOpen] = useState(false);
   const [transactionModalType, setTransactionModalType] = useState<TransactionType>('salario');
+  const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
   const [isTagModalOpen, setIsTagModalOpen] = useState(false);
   const [isShowCardsModalOpen, setIsShowCardsModalOpen] = useState(false);
 
@@ -188,12 +201,20 @@ export const BudgetView: React.FC<BudgetViewProps> = ({
   };
 
   const openAddSalary = () => {
+    setEditingTransaction(null);
     setTransactionModalType('salario');
     setIsTransactionModalOpen(true);
   };
 
   const openAddExpense = () => {
+    setEditingTransaction(null);
     setTransactionModalType('gasto');
+    setIsTransactionModalOpen(true);
+  };
+
+  const openEditTransaction = (item: Transaction) => {
+    setEditingTransaction(item);
+    setTransactionModalType(item.type);
     setIsTransactionModalOpen(true);
   };
 
@@ -217,7 +238,7 @@ export const BudgetView: React.FC<BudgetViewProps> = ({
                 Período Orçamentário
               </span>
               <h2 className="text-xl sm:text-2xl font-black text-white capitalize">
-                {MONTH_NAMES[selectedMonth]} <span className="neon-text-green">{selectedYear}</span>
+                {MONTH_NAMES[selectedMonth]} <span className="text-[#00ff7f]">{selectedYear}</span>
               </h2>
             </div>
           </div>
@@ -602,14 +623,24 @@ export const BudgetView: React.FC<BudgetViewProps> = ({
 
                   {/* Ações */}
                   <td className="py-3 px-4 text-right">
-                    <button
-                      type="button"
-                      onClick={() => onDeleteTransaction(item.id)}
-                      title="Excluir salário"
-                      className="p-1.5 rounded-lg text-zinc-500 hover:text-rose-400 hover:bg-zinc-800 transition-colors"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
+                    <div className="flex items-center justify-end gap-1">
+                      <button
+                        type="button"
+                        onClick={() => openEditTransaction(item)}
+                        title="Editar salário"
+                        className="p-1.5 rounded-lg text-zinc-400 hover:text-[#00ff7f] hover:bg-zinc-800 transition-colors cursor-pointer"
+                      >
+                        <Pencil className="w-4 h-4" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => onDeleteTransaction(item.id)}
+                        title="Excluir salário"
+                        className="p-1.5 rounded-lg text-zinc-500 hover:text-rose-400 hover:bg-zinc-800 transition-colors cursor-pointer"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -679,14 +710,24 @@ export const BudgetView: React.FC<BudgetViewProps> = ({
 
                   {/* Ações */}
                   <td className="py-3 px-4 text-right">
-                    <button
-                      type="button"
-                      onClick={() => onDeleteTransaction(item.id)}
-                      title="Excluir gasto"
-                      className="p-1.5 rounded-lg text-zinc-500 hover:text-rose-400 hover:bg-zinc-800 transition-colors"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
+                    <div className="flex items-center justify-end gap-1">
+                      <button
+                        type="button"
+                        onClick={() => openEditTransaction(item)}
+                        title="Editar gasto"
+                        className="p-1.5 rounded-lg text-zinc-400 hover:text-rose-400 hover:bg-zinc-800 transition-colors cursor-pointer"
+                      >
+                        <Pencil className="w-4 h-4" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => onDeleteTransaction(item.id)}
+                        title="Excluir gasto"
+                        className="p-1.5 rounded-lg text-zinc-500 hover:text-rose-400 hover:bg-zinc-800 transition-colors cursor-pointer"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -713,11 +754,18 @@ export const BudgetView: React.FC<BudgetViewProps> = ({
       {/* MODALS */}
       <AddTransactionModal
         isOpen={isTransactionModalOpen}
-        onClose={() => setIsTransactionModalOpen(false)}
+        onClose={() => {
+          setIsTransactionModalOpen(false);
+          setEditingTransaction(null);
+        }}
         type={transactionModalType}
         tags={tags}
         currentDateDefault={currentMonthDateString}
+        editingTransaction={editingTransaction}
         onSave={onAddTransaction}
+        onSaveBatch={onAddTransactionsBatch || ((txs) => txs.forEach(onAddTransaction))}
+        onUpdate={onUpdateTransaction}
+        onUpdateWithReplication={onUpdateTransactionWithReplication}
       />
 
       <AddTagModal

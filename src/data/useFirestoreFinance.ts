@@ -13,6 +13,7 @@ import { db } from '../lib/firebase';
 import { useAuth } from '../context/AuthContext';
 import { Transaction, TagItem, CreditCard } from '../types';
 import { DEFAULT_TAGS, INITIAL_TRANSACTIONS, INITIAL_CARDS } from './initialData';
+import { buildClampedDate } from '../utils/formatters';
 
 const LOCAL_STORAGE_KEYS = {
   TRANSACTIONS: 'cabe_no_bolso_transactions_v1',
@@ -241,6 +242,41 @@ export function useFirestoreFinance() {
     }
   };
 
+  const addTransactionsBatch = async (items: Omit<Transaction, 'id'>[]) => {
+    if (items.length === 0) return;
+    if (!user) {
+      const generated: Transaction[] = items.map((t, idx) => ({
+        ...t,
+        id: `tx-${Date.now()}-${idx}-${Math.random().toString(36).substring(2, 6)}`,
+      }));
+      setTransactions((prev) => [...generated, ...prev]);
+      return;
+    }
+
+    setIsSyncing(true);
+    try {
+      const txColRef = collection(db, 'users', user.uid, 'transactions');
+      const batch = writeBatch(db);
+      items.forEach((tx) => {
+        const newDoc = doc(txColRef);
+        batch.set(newDoc, {
+          name: tx.name,
+          amount: Number(tx.amount) || 0,
+          type: tx.type,
+          tag: tx.tag,
+          date: tx.date,
+          status: tx.status,
+          createdAt: new Date().toISOString(),
+        });
+      });
+      await batch.commit();
+    } catch (err) {
+      console.error('Error adding batch transactions to Firestore:', err);
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
   const updateTransaction = async (id: string, updated: Partial<Transaction>) => {
     if (!user) {
       setTransactions((prev) =>
@@ -255,6 +291,124 @@ export function useFirestoreFinance() {
       await updateDoc(docRef, updated);
     } catch (err) {
       console.error('Error updating transaction in Firestore:', err);
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
+  const updateTransactionWithReplication = async (
+    id: string,
+    updated: Omit<Transaction, 'id'>,
+    replicateMonths: { year: number; month: number }[] = [],
+    originalName?: string
+  ) => {
+    const day = parseInt(updated.date.split('-')[2] || '15', 10);
+    const searchName = (originalName || updated.name).trim().toLowerCase();
+
+    if (!user) {
+      setTransactions((prev) => {
+        let currentList = prev.map((item) =>
+          item.id === id ? { ...item, ...updated } : item
+        );
+
+        replicateMonths.forEach(({ year, month }, idx) => {
+          const targetDateStr = buildClampedDate(year, month, day);
+          const existingMatchIndex = currentList.findIndex((item) => {
+            if (item.id === id) return false;
+            const itemDate = item.date.split('-');
+            const iYear = parseInt(itemDate[0], 10);
+            const iMonth = parseInt(itemDate[1], 10) - 1;
+            return (
+              iYear === year &&
+              iMonth === month &&
+              item.type === updated.type &&
+              item.name.trim().toLowerCase() === searchName
+            );
+          });
+
+          if (existingMatchIndex >= 0) {
+            currentList[existingMatchIndex] = {
+              ...currentList[existingMatchIndex],
+              name: updated.name,
+              amount: updated.amount,
+              tag: updated.tag,
+              date: targetDateStr,
+            };
+          } else {
+            currentList.push({
+              id: `tx-${Date.now()}-${idx}-${Math.random().toString(36).substring(2, 6)}`,
+              name: updated.name,
+              amount: updated.amount,
+              type: updated.type,
+              tag: updated.tag,
+              date: targetDateStr,
+              status: updated.type === 'salario' ? 'Não Recebido' : 'Não pago',
+            });
+          }
+        });
+
+        return currentList;
+      });
+      return;
+    }
+
+    setIsSyncing(true);
+    try {
+      const txColRef = collection(db, 'users', user.uid, 'transactions');
+      const batch = writeBatch(db);
+
+      // 1. Update the base transaction
+      const baseDocRef = doc(db, 'users', user.uid, 'transactions', id);
+      batch.update(baseDocRef, {
+        name: updated.name,
+        amount: Number(updated.amount) || 0,
+        type: updated.type,
+        tag: updated.tag,
+        date: updated.date,
+        status: updated.status,
+      });
+
+      // 2. Replicate to other chosen months
+      replicateMonths.forEach(({ year, month }) => {
+        const targetDateStr = buildClampedDate(year, month, day);
+        const existingMatch = transactions.find((item) => {
+          if (item.id === id) return false;
+          const itemDate = item.date.split('-');
+          const iYear = parseInt(itemDate[0], 10);
+          const iMonth = parseInt(itemDate[1], 10) - 1;
+          return (
+            iYear === year &&
+            iMonth === month &&
+            item.type === updated.type &&
+            item.name.trim().toLowerCase() === searchName
+          );
+        });
+
+        if (existingMatch) {
+          const matchDocRef = doc(db, 'users', user.uid, 'transactions', existingMatch.id);
+          batch.update(matchDocRef, {
+            name: updated.name,
+            amount: Number(updated.amount) || 0,
+            tag: updated.tag,
+            date: targetDateStr,
+          });
+        } else {
+          const newDoc = doc(txColRef);
+          batch.set(newDoc, {
+            name: updated.name,
+            amount: Number(updated.amount) || 0,
+            type: updated.type,
+            tag: updated.tag,
+            date: targetDateStr,
+            status: updated.type === 'salario' ? 'Não Recebido' : 'Não pago',
+            createdAt: new Date().toISOString(),
+          });
+        }
+      });
+
+      await batch.commit();
+    } catch (err) {
+      console.error('Error updating transaction with replication:', err);
     } finally {
       setIsSyncing(false);
     }
@@ -497,7 +651,9 @@ export function useFirestoreFinance() {
     isLoading,
     isSyncing,
     addTransaction,
+    addTransactionsBatch,
     updateTransaction,
+    updateTransactionWithReplication,
     deleteTransaction,
     toggleTransactionStatus,
     addTag,
