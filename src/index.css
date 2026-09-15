@@ -1,0 +1,46 @@
+@import "tailwindcss";
+
+@layer base {
+  body {
+    background-color: #050505;
+    color: #f3f4f6;
+    font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+}
+
+.font-mono-num {
+  font-family: 'JetBrains Mono', monospace;
+}
+
+/* Custom scrollbar for dark neon aesthetic */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #09090b;
+}
+::-webkit-scrollbar-thumb {
+  background: #27272a;
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #3f3f46;
+}
+
+/* Custom subtle neon glows */
+.neon-glow-green {
+  box-shadow: 0 0 15px rgba(0, 255, 128, 0.25), 0 0 30px rgba(0, 255, 128, 0.1);
+}
+
+.neon-border-green {
+  border-color: #00ff7f;
+  box-shadow: 0 0 8px rgba(0, 255, 128, 0.35);
+}
+
+.neon-text-green {
+  color: #00ff7f;
+  text-shadow: 0 0 8px rgba(0, 255, 128, 0.4);
+}

@@ -1,0 +1,6 @@
+{
+  "name": "Sistema Cabe no bolso",
+  "description": "Sistema de finanças pessoais para organização do orçamento mensal, controle de salários, gastos, cartões de crédito e relatórios detalhados.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
