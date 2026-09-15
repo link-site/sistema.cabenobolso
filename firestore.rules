@@ -1,0 +1,43 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isMasterAdmin() {
+      return isAuthenticated() && (
+        request.auth.token.email.lower() == 'sousaleidiane242025@gmail.com'
+      );
+    }
+
+    function isAuthorizedEmail() {
+      return isAuthenticated() && (
+        isMasterAdmin() ||
+        exists(/databases/$(database)/documents/authorized_emails/$(request.auth.token.email.lower()))
+      );
+    }
+
+    // Collection of authorized emails
+    match /authorized_emails/{emailId} {
+      // Authenticated users can check the whitelist
+      allow read: if isAuthenticated();
+      // Only Master Admin or registered admins can add or remove authorized emails
+      allow write: if isMasterAdmin() || (
+        isAuthenticated() && 
+        exists(/databases/$(database)/documents/authorized_emails/$(request.auth.token.email.lower())) &&
+        get(/databases/$(database)/documents/authorized_emails/$(request.auth.token.email.lower())).data.role == 'admin'
+      );
+    }
+
+    // User profiles and subcollections
+    match /users/{userId} {
+      allow read, write: if isAuthenticated() && request.auth.uid == userId && isAuthorizedEmail();
+
+      match /{allSubcollections=**} {
+        allow read, write: if isAuthenticated() && request.auth.uid == userId && isAuthorizedEmail();
+      }
+    }
+  }
+}

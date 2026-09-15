@@ -1,6 +1,6 @@
 {
   "name": "Sistema Cabe no bolso",
-  "description": "Sistema de finanças pessoais para organização do orçamento mensal, controle de salários, gastos, cartões de crédito e relatórios detalhados.",
+  "description": "Sistema de finanças pessoais com login via Gmail/Google e banco de dados Cloud Firestore em tempo real, controle de orçamento mensal até 2035, salários, gastos e cartões de crédito.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

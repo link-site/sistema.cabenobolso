@@ -41,3 +41,14 @@ export interface SortConfig {
   field: SortField;
   direction: SortDirection;
 }
+
+export interface AuthorizedEmail {
+  id: string; // Normalized lowercase email
+  email: string;
+  role: 'admin' | 'user';
+  addedBy: string;
+  createdAt: string;
+  notes?: string;
+}
+
+export const MASTER_ADMIN_EMAIL = 'sousaleidiane242025@gmail.com';

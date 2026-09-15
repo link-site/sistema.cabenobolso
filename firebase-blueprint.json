@@ -1,0 +1,72 @@
+{
+  "entities": {
+    "authorized_emails": {
+      "title": "Authorized Emails",
+      "description": "Whitelist of permitted Gmail accounts allowed to access the system",
+      "type": "object",
+      "properties": {
+        "email": { "type": "string", "format": "email", "description": "Authorized Gmail address" },
+        "role": { "type": "string", "enum": ["admin", "user"], "description": "Access level" },
+        "addedBy": { "type": "string", "description": "Email of admin who authorized this user" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Date added" }
+      },
+      "required": ["email", "role"]
+    },
+    "users": {
+      "title": "User",
+      "description": "User profile document",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "description": "User ID" },
+        "email": { "type": "string", "description": "User Gmail/Email" },
+        "displayName": { "type": "string", "description": "Display name" },
+        "photoURL": { "type": "string", "description": "User photo URL" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Account creation timestamp" }
+      },
+      "required": ["uid", "email"],
+      "subcollections": {
+        "transactions": {
+          "title": "Transactions",
+          "description": "Financial income and expense records",
+          "type": "object",
+          "properties": {
+            "name": { "type": "string", "description": "Description of transaction" },
+            "amount": { "type": "number", "description": "Monetary value in BRL" },
+            "type": { "type": "string", "enum": ["salario", "gasto"], "description": "Income or expense" },
+            "tag": { "type": "string", "description": "Category tag" },
+            "date": { "type": "string", "description": "ISO date YYYY-MM-DD" },
+            "status": { "type": "string", "description": "Payment or receipt status" },
+            "cardId": { "type": "string", "description": "Optional credit card association" },
+            "createdAt": { "type": "string", "format": "date-time", "description": "Creation timestamp" }
+          },
+          "required": ["name", "amount", "type", "tag", "date", "status"]
+        },
+        "cards": {
+          "title": "Credit Cards",
+          "description": "Registered credit cards and limits",
+          "type": "object",
+          "properties": {
+            "name": { "type": "string", "description": "Card brand/name" },
+            "currentInvoice": { "type": "number", "description": "Current open invoice amount" },
+            "limit": { "type": "number", "description": "Total credit limit" },
+            "dueDate": { "type": "string", "description": "Due date ISO string YYYY-MM-DD" },
+            "paidThisMonth": { "type": "boolean", "description": "Whether current month invoice is paid" },
+            "createdAt": { "type": "string", "format": "date-time", "description": "Creation timestamp" }
+          },
+          "required": ["name", "currentInvoice", "limit", "dueDate", "paidThisMonth"]
+        },
+        "tags": {
+          "title": "Tags",
+          "description": "Custom transaction categories",
+          "type": "object",
+          "properties": {
+            "name": { "type": "string", "description": "Tag label" },
+            "type": { "type": "string", "enum": ["salario", "gasto"], "description": "Target form" },
+            "createdAt": { "type": "string", "format": "date-time", "description": "Creation timestamp" }
+          },
+          "required": ["name", "type"]
+        }
+      }
+    }
+  }
+}
