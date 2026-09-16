@@ -1,12 +1,13 @@
 import React from 'react';
 import { X, CreditCard as CreditCardIcon, Plus, ExternalLink, Calendar, CheckCircle2, Clock } from 'lucide-react';
-import { CreditCard } from '../types';
-import { formatCurrency, formatDateDisplay } from '../utils/formatters';
+import { CreditCard, CardPurchase } from '../types';
+import { formatCurrency, formatDateDisplay, parseDateMonthYear } from '../utils/formatters';
 
 interface ShowCreditCardsModalProps {
   isOpen: boolean;
   onClose: () => void;
   cards: CreditCard[];
+  cardPurchases?: CardPurchase[];
   onNavigateToCards: () => void;
   onOpenAddNewCard: () => void;
   onTogglePaid: (id: string) => void;
@@ -16,13 +17,26 @@ export const ShowCreditCardsModal: React.FC<ShowCreditCardsModalProps> = ({
   isOpen,
   onClose,
   cards,
+  cardPurchases = [],
   onNavigateToCards,
   onOpenAddNewCard,
   onTogglePaid,
 }) => {
   if (!isOpen) return null;
 
-  const totalInvoices = cards.reduce((acc, c) => acc + c.currentInvoice, 0);
+  const getCardInvoice = (c: CreditCard) => {
+    const list = cardPurchases.filter((p) => p.cardId === c.id);
+    if (list.length > 0) {
+      const curMonthList = list.filter((p) => {
+        const { year, month } = parseDateMonthYear(p.billingDate);
+        return year === 2026 && month === 8;
+      });
+      return curMonthList.reduce((sum, item) => sum + item.installmentAmount, 0);
+    }
+    return c.currentInvoice;
+  };
+
+  const totalInvoices = cards.reduce((acc, c) => acc + getCardInvoice(c), 0);
   const totalLimits = cards.reduce((acc, c) => acc + c.limit, 0);
 
   return (
@@ -91,8 +105,9 @@ export const ShowCreditCardsModal: React.FC<ShowCreditCardsModalProps> = ({
             </div>
           ) : (
             cards.map((card) => {
-              const usedPercent = Math.min(100, Math.round((card.currentInvoice / card.limit) * 100));
-              const available = Math.max(0, card.limit - card.currentInvoice);
+              const invoiceVal = getCardInvoice(card);
+              const usedPercent = Math.min(100, Math.round((invoiceVal / card.limit) * 100));
+              const available = Math.max(0, card.limit - invoiceVal);
 
               return (
                 <div
@@ -116,8 +131,12 @@ export const ShowCreditCardsModal: React.FC<ShowCreditCardsModalProps> = ({
                         </h4>
                         <div className="flex items-center gap-3 text-xs text-zinc-400 mt-1">
                           <span className="flex items-center gap-1">
+                            <Clock className="w-3.5 h-3.5 text-zinc-500" />
+                            Fechamento: Dia {card.closingDay || 1}
+                          </span>
+                          <span className="flex items-center gap-1">
                             <Calendar className="w-3.5 h-3.5 text-zinc-500" />
-                            Vence: {formatDateDisplay(card.dueDate)}
+                            Vencimento: Dia {card.dueDay || card.dueDate || 10}
                           </span>
                         </div>
                       </div>
@@ -126,7 +145,7 @@ export const ShowCreditCardsModal: React.FC<ShowCreditCardsModalProps> = ({
                     <div className="text-right">
                       <span className="text-[11px] text-zinc-400 block">Fatura Atual</span>
                       <span className="text-base font-bold font-mono-num text-rose-400">
-                        {formatCurrency(card.currentInvoice)}
+                        {formatCurrency(invoiceVal)}
                       </span>
                     </div>
                   </div>

@@ -25,6 +25,7 @@ function MainApp() {
     transactions,
     tags,
     cards,
+    cardPurchases,
     isLoading: dataLoading,
     isSyncing,
     addTransaction,
@@ -39,6 +40,9 @@ function MainApp() {
     updateCard,
     deleteCard,
     toggleCardPaid,
+    addCardPurchaseWithInstallments,
+    deleteCardPurchase,
+    deleteCardPurchaseGroup,
     resetToDefault,
   } = useFirestoreFinance();
 
@@ -92,6 +96,7 @@ function MainApp() {
                 <DashboardView
                   transactions={transactions}
                   cards={cards}
+                  cardPurchases={cardPurchases}
                   onNavigateToMonth={(year, month) => {
                     setActiveTab('orcamento');
                   }}
@@ -103,6 +108,7 @@ function MainApp() {
                   transactions={transactions}
                   tags={tags}
                   cards={cards}
+                  cardPurchases={cardPurchases}
                   onAddTransaction={addTransaction}
                   onAddTransactionsBatch={addTransactionsBatch}
                   onUpdateTransaction={updateTransaction}
@@ -120,10 +126,14 @@ function MainApp() {
               {activeTab === 'cartoes' && (
                 <CreditCardsView
                   cards={cards}
+                  cardPurchases={cardPurchases}
                   onAddCard={addCard}
                   onUpdateCard={updateCard}
                   onDeleteCard={deleteCard}
                   onTogglePaid={toggleCardPaid}
+                  onAddCardPurchase={addCardPurchaseWithInstallments}
+                  onDeleteCardPurchase={deleteCardPurchase}
+                  onDeleteCardPurchaseGroup={deleteCardPurchaseGroup}
                   isAddModalOpen={isAddCardModalOpen}
                   setIsAddModalOpen={setIsAddCardModalOpen}
                 />
@@ -134,6 +144,7 @@ function MainApp() {
                   transactions={transactions}
                   cards={cards}
                   tags={tags}
+                  cardPurchases={cardPurchases}
                 />
               )}
             </>

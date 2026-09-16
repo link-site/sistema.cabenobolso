@@ -23,6 +23,7 @@ import {
   Transaction,
   TagItem,
   CreditCard,
+  CardPurchase,
   SortField,
   SortDirection,
   TransactionType,
@@ -41,6 +42,7 @@ interface BudgetViewProps {
   transactions: Transaction[];
   tags: TagItem[];
   cards: CreditCard[];
+  cardPurchases?: CardPurchase[];
   onAddTransaction: (tx: Omit<Transaction, 'id'>) => void;
   onAddTransactionsBatch?: (txs: Omit<Transaction, 'id'>[]) => void;
   onUpdateTransaction?: (id: string, updated: Partial<Transaction>) => void;
@@ -63,6 +65,7 @@ export const BudgetView: React.FC<BudgetViewProps> = ({
   transactions,
   tags,
   cards,
+  cardPurchases = [],
   onAddTransaction,
   onAddTransactionsBatch,
   onUpdateTransaction,
@@ -780,6 +783,7 @@ export const BudgetView: React.FC<BudgetViewProps> = ({
         isOpen={isShowCardsModalOpen}
         onClose={() => setIsShowCardsModalOpen(false)}
         cards={cards}
+        cardPurchases={cardPurchases}
         onNavigateToCards={onNavigateToCardsTab}
         onOpenAddNewCard={onOpenAddCardModal}
         onTogglePaid={onToggleCardPaid}

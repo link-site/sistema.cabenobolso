@@ -77,3 +77,56 @@ export const parseDateMonthYear = (dateStr: string): { year: number; month: numb
   }
   return { year: 2026, month: 8 };
 };
+
+export const YEARS_UP_TO_2030 = [2024, 2025, 2026, 2027, 2028, 2029, 2030] as const;
+
+/**
+ * Calculates the billing cycle { billingYear, billingMonth } (0-indexed month)
+ * for a purchase date based on the credit card's closing day (1-31).
+ *
+ * - If closingDay === 1:
+ *   Purchases in month M up to 01 of month M+1 belong to month M (e.g. 01/09 to 01/10 belong to September).
+ *   On day 1 of month M (e.g. 01/10), it closes month M-1 (September).
+ *   Purchases from 02/10 to 01/11 belong to October.
+ * - If closingDay > 1 (e.g. 10, 15, 20, 25):
+ *   Purchases in month M on day <= closingDay belong to month M.
+ *   Purchases in month M on day > closingDay belong to month M + 1.
+ */
+export const calculateBillingCycle = (
+  purchaseDateStr: string,
+  closingDay: number = 1
+): { billingYear: number; billingMonth: number } => {
+  const parts = (purchaseDateStr || '').split('-');
+  if (parts.length < 3) {
+    const now = new Date();
+    return { billingYear: now.getFullYear(), billingMonth: now.getMonth() };
+  }
+  const year = parseInt(parts[0], 10);
+  const month = parseInt(parts[1], 10) - 1; // 0-indexed: 0 = Jan, 8 = Sep
+  const day = parseInt(parts[2], 10);
+
+  const safeClosing = Math.max(1, Math.min(31, closingDay || 1));
+
+  if (safeClosing === 1) {
+    // User cycle example: "estamos no mês de setembro, ciclo começou 01/09 e termina 01/10"
+    // Purchases on day 1 of month M (e.g. 01/10) belong to the cycle of month M-1 (September).
+    // Purchases on days 2..31 of month M belong to month M.
+    if (day === 1) {
+      const prev = new Date(year, month - 1, 1);
+      return { billingYear: prev.getFullYear(), billingMonth: prev.getMonth() };
+    } else {
+      return { billingYear: year, billingMonth: month };
+    }
+  } else {
+    // Standard credit card cutoff:
+    // If purchase day <= closing day, it belongs to the current month's invoice.
+    // If purchase day > closing day, invoice is closed, it belongs to next month's invoice.
+    if (day <= safeClosing) {
+      return { billingYear: year, billingMonth: month };
+    } else {
+      const next = new Date(year, month + 1, 1);
+      return { billingYear: next.getFullYear(), billingMonth: next.getMonth() };
+    }
+  }
+};
+

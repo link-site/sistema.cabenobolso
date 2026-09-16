@@ -65,6 +65,24 @@
             "createdAt": { "type": "string", "format": "date-time", "description": "Creation timestamp" }
           },
           "required": ["name", "type"]
+        },
+        "card_purchases": {
+          "title": "Card Purchases",
+          "description": "Credit card purchases and monthly installment movements",
+          "type": "object",
+          "properties": {
+            "cardId": { "type": "string", "description": "Associated credit card ID" },
+            "name": { "type": "string", "description": "Purchase item name" },
+            "totalAmount": { "type": "number", "description": "Total original purchase value" },
+            "installmentAmount": { "type": "number", "description": "Value of this installment" },
+            "installmentCount": { "type": "number", "description": "Total number of installments" },
+            "currentInstallment": { "type": "number", "description": "Current installment number (e.g. 1)" },
+            "purchaseDate": { "type": "string", "description": "Date of transaction YYYY-MM-DD" },
+            "billingDate": { "type": "string", "description": "Invoice due date for this installment YYYY-MM-DD" },
+            "purchaseGroupId": { "type": "string", "description": "ID grouping all installments of the purchase" },
+            "createdAt": { "type": "string", "format": "date-time", "description": "Creation timestamp" }
+          },
+          "required": ["cardId", "name", "totalAmount", "installmentAmount", "installmentCount", "currentInstallment", "purchaseDate", "billingDate"]
         }
       }
     }

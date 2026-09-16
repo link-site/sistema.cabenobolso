@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, CreditCard as CreditCardIcon, DollarSign, Calendar, ShieldCheck, Tag } from 'lucide-react';
+import { X, CreditCard as CreditCardIcon, DollarSign, Calendar, ShieldCheck, Tag, Info } from 'lucide-react';
 import { CreditCard } from '../types';
 
 interface AddCreditCardModalProps {
@@ -26,9 +26,9 @@ export const AddCreditCardModal: React.FC<AddCreditCardModalProps> = ({
   editingCard,
 }) => {
   const [name, setName] = useState('');
-  const [invoice, setInvoice] = useState('');
   const [limit, setLimit] = useState('');
-  const [dueDate, setDueDate] = useState('');
+  const [closingDay, setClosingDay] = useState('1');
+  const [dueDay, setDueDay] = useState('10');
   const [color, setColor] = useState('#8a05be');
   const [error, setError] = useState('');
 
@@ -36,18 +36,24 @@ export const AddCreditCardModal: React.FC<AddCreditCardModalProps> = ({
     if (isOpen) {
       if (editingCard) {
         setName(editingCard.name);
-        setInvoice(editingCard.currentInvoice.toString());
         setLimit(editingCard.limit.toString());
-        setDueDate(editingCard.dueDate);
+        setClosingDay(String(editingCard.closingDay || 1));
+        
+        let dDay = editingCard.dueDay;
+        if (!dDay && editingCard.dueDate) {
+          if (editingCard.dueDate.includes('-')) {
+            dDay = parseInt(editingCard.dueDate.split('-')[2], 10);
+          } else {
+            dDay = parseInt(editingCard.dueDate, 10);
+          }
+        }
+        setDueDay(String(dDay || 10));
         setColor(editingCard.color || '#8a05be');
       } else {
         setName('');
-        setInvoice('');
         setLimit('');
-        // default to 10th of next month
-        const today = new Date();
-        const nextMonth = new Date(today.getFullYear(), today.getMonth() + 1, 10);
-        setDueDate(nextMonth.toISOString().split('T')[0]);
+        setClosingDay('1');
+        setDueDay('10');
         setColor('#8a05be');
       }
       setError('');
@@ -63,13 +69,6 @@ export const AddCreditCardModal: React.FC<AddCreditCardModalProps> = ({
       return;
     }
 
-    const cleanInvoice = invoice.replace(/[^\d.,]/g, '').replace(',', '.');
-    const parsedInvoice = parseFloat(cleanInvoice);
-    if (isNaN(parsedInvoice) || parsedInvoice < 0) {
-      setError('Por favor, insira um valor de fatura válido (pode ser 0).');
-      return;
-    }
-
     const cleanLimit = limit.replace(/[^\d.,]/g, '').replace(',', '.');
     const parsedLimit = parseFloat(cleanLimit);
     if (isNaN(parsedLimit) || parsedLimit <= 0) {
@@ -77,18 +76,26 @@ export const AddCreditCardModal: React.FC<AddCreditCardModalProps> = ({
       return;
     }
 
-    if (!dueDate) {
-      setError('Por favor, informe a data de vencimento.');
+    const parsedClosing = parseInt(closingDay, 10);
+    if (isNaN(parsedClosing) || parsedClosing < 1 || parsedClosing > 31) {
+      setError('Por favor, informe um Dia de Fechamento válido (entre 1 e 31).');
+      return;
+    }
+
+    const parsedDue = parseInt(dueDay, 10);
+    if (isNaN(parsedDue) || parsedDue < 1 || parsedDue > 31) {
+      setError('Por favor, informe um Dia de Vencimento válido (entre 1 e 31).');
       return;
     }
 
     onSave({
       name: name.trim(),
-      currentInvoice: parsedInvoice,
+      currentInvoice: editingCard ? editingCard.currentInvoice : 0,
       limit: parsedLimit,
-      dueDate,
+      dueDate: String(parsedDue),
+      dueDay: parsedDue,
+      closingDay: parsedClosing,
       color,
-      closingDay: 5,
     });
 
     onClose();
@@ -155,67 +162,86 @@ export const AddCreditCardModal: React.FC<AddCreditCardModalProps> = ({
             />
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
-            {/* Valor da Fatura / Gasto Atual */}
-            <div>
-              <label className="block text-xs font-semibold uppercase tracking-wider text-zinc-400 mb-1.5">
-                Valor da Fatura (R$)
-              </label>
-              <div className="relative">
-                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500 font-mono text-xs">
-                  R$
-                </span>
-                <input
-                  id="input-card-invoice"
-                  type="text"
-                  required
-                  inputMode="decimal"
-                  placeholder="0,00"
-                  value={invoice}
-                  onChange={(e) => setInvoice(e.target.value)}
-                  className="w-full bg-[#18181b] border border-zinc-700 focus:border-[#00ff7f] focus:outline-none focus:ring-1 focus:ring-[#00ff7f] rounded-xl pl-9 pr-3 py-2 text-sm text-white font-mono-num placeholder-zinc-500 transition-colors"
-                />
-              </div>
-            </div>
-
-            {/* Limite do Cartão */}
-            <div>
-              <label className="block text-xs font-semibold uppercase tracking-wider text-zinc-400 mb-1.5">
-                Limite do Cartão (R$)
-              </label>
-              <div className="relative">
-                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500 font-mono text-xs">
-                  R$
-                </span>
-                <input
-                  id="input-card-limit"
-                  type="text"
-                  required
-                  inputMode="decimal"
-                  placeholder="5.000,00"
-                  value={limit}
-                  onChange={(e) => setLimit(e.target.value)}
-                  className="w-full bg-[#18181b] border border-zinc-700 focus:border-[#00ff7f] focus:outline-none focus:ring-1 focus:ring-[#00ff7f] rounded-xl pl-9 pr-3 py-2 text-sm text-white font-mono-num placeholder-zinc-500 transition-colors"
-                />
-              </div>
+          {/* Limite do Cartão */}
+          <div>
+            <label className="block text-xs font-semibold uppercase tracking-wider text-zinc-400 mb-1.5">
+              Limite do Cartão (R$)
+            </label>
+            <div className="relative">
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500 font-mono text-xs">
+                R$
+              </span>
+              <input
+                id="input-card-limit"
+                type="text"
+                required
+                inputMode="decimal"
+                placeholder="5.000,00"
+                value={limit}
+                onChange={(e) => setLimit(e.target.value)}
+                className="w-full bg-[#18181b] border border-zinc-700 focus:border-[#00ff7f] focus:outline-none focus:ring-1 focus:ring-[#00ff7f] rounded-xl pl-9 pr-3 py-2 text-sm text-white font-mono-num placeholder-zinc-500 transition-colors"
+              />
             </div>
           </div>
 
-          {/* Data de Vencimento */}
-          <div>
-            <label className="block text-xs font-semibold uppercase tracking-wider text-zinc-400 mb-1.5">
-              Data de Vencimento
-            </label>
-            <div className="relative">
-              <input
-                id="input-card-duedate"
-                type="date"
-                required
-                value={dueDate}
-                onChange={(e) => setDueDate(e.target.value)}
-                className="w-full bg-[#18181b] border border-zinc-700 focus:border-[#00ff7f] focus:outline-none focus:ring-1 focus:ring-[#00ff7f] rounded-xl px-4 py-2.5 text-sm text-white transition-colors cursor-pointer"
-              />
-              <Calendar className="w-4 h-4 text-zinc-400 absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {/* Data de Fechamento */}
+            <div>
+              <label className="block text-xs font-semibold uppercase tracking-wider text-zinc-400 mb-1.5">
+                Data de Fechamento (Dia)
+              </label>
+              <div className="relative">
+                <input
+                  id="input-card-closingday"
+                  type="number"
+                  min="1"
+                  max="31"
+                  required
+                  placeholder="Ex: 1"
+                  value={closingDay}
+                  onChange={(e) => setClosingDay(e.target.value)}
+                  className="w-full bg-[#18181b] border border-zinc-700 focus:border-[#00ff7f] focus:outline-none focus:ring-1 focus:ring-[#00ff7f] rounded-xl px-4 py-2 text-sm text-white font-mono-num transition-colors"
+                />
+                <Calendar className="w-4 h-4 text-zinc-400 absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+              </div>
+              <p className="text-[11px] text-zinc-500 mt-1">
+                Fim do ciclo de compras (ex: dia 1).
+              </p>
+            </div>
+
+            {/* Dia do Vencimento */}
+            <div>
+              <label className="block text-xs font-semibold uppercase tracking-wider text-zinc-400 mb-1.5">
+                Dia do vencimento
+              </label>
+              <div className="relative">
+                <input
+                  id="input-card-duedate"
+                  type="number"
+                  min="1"
+                  max="31"
+                  required
+                  placeholder="Ex: 10"
+                  value={dueDay}
+                  onChange={(e) => setDueDay(e.target.value)}
+                  className="w-full bg-[#18181b] border border-zinc-700 focus:border-[#00ff7f] focus:outline-none focus:ring-1 focus:ring-[#00ff7f] rounded-xl px-4 py-2 text-sm text-white font-mono-num transition-colors"
+                />
+                <Calendar className="w-4 h-4 text-zinc-400 absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+              </div>
+              <p className="text-[11px] text-zinc-500 mt-1">
+                Dia de pagamento da fatura.
+              </p>
+            </div>
+          </div>
+
+          {/* Dica do Ciclo de Fechamento */}
+          <div className="p-3 rounded-xl bg-zinc-900/90 border border-zinc-800 flex items-start gap-2.5 text-xs text-zinc-300">
+            <Info className="w-4 h-4 text-[#00ff7f] mt-0.5 shrink-0" />
+            <div>
+              <span className="font-semibold text-white block mb-0.5">Como funciona o ciclo:</span>
+              <span className="text-zinc-400">
+                Todas as compras realizadas no mês até o dia {closingDay || 1} fecham no ciclo do mês. Compras após o dia {closingDay || 1} entram no ciclo seguinte.
+              </span>
             </div>
           </div>
 

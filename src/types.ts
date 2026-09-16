@@ -28,10 +28,26 @@ export interface CreditCard {
   currentInvoice: number; // Valor da fatura
   limit: number; // Limite do cartão
   dueDate: string; // Day of month or YYYY-MM-DD
+  dueDay?: number; // Dia do vencimento (1 a 31)
+  closingDay?: number; // Dia do fechamento (1 a 31)
   tag: string; // Always "Cartão de crédito"
   color?: string;
-  closingDay?: number;
   paidThisMonth?: boolean;
+}
+
+export interface CardPurchase {
+  id: string;
+  cardId: string;
+  name: string; // Nome da compra
+  totalAmount: number; // Valor total da compra
+  installmentAmount: number; // Valor de cada parcela
+  installmentCount: number; // Total de parcelas (ex: 3)
+  currentInstallment: number; // Parcela atual (ex: 1, 2, 3)
+  purchaseDate: string; // Data da compra YYYY-MM-DD
+  billingDate: string; // Mês/data de vencimento da parcela YYYY-MM-DD
+  purchaseGroupId: string; // ID comum para agrupar todas as parcelas
+  category?: string;
+  notes?: string;
 }
 
 export type SortField = 'name' | 'amount' | 'tag' | 'date';

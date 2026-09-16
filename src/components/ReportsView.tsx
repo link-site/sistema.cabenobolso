@@ -16,7 +16,7 @@ import {
   Layers,
   Filter,
 } from 'lucide-react';
-import { Transaction, CreditCard as CreditCardType, TagItem } from '../types';
+import { Transaction, CreditCard as CreditCardType, TagItem, CardPurchase } from '../types';
 import {
   formatCurrency,
   formatDateDisplay,
@@ -28,9 +28,15 @@ interface ReportsViewProps {
   transactions: Transaction[];
   cards: CreditCardType[];
   tags: TagItem[];
+  cardPurchases?: CardPurchase[];
 }
 
-export const ReportsView: React.FC<ReportsViewProps> = ({ transactions, cards, tags }) => {
+export const ReportsView: React.FC<ReportsViewProps> = ({
+  transactions,
+  cards,
+  tags,
+  cardPurchases = [],
+}) => {
   const [selectedYear, setSelectedYear] = useState<number>(2026);
   const [selectedMonth, setSelectedMonth] = useState<number | 'all'>('all');
 
@@ -133,8 +139,25 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ transactions, cards, t
       .reduce((sum, t) => sum + t.amount, 0);
   }, [filteredTransactions]);
 
+  // Card Invoice Calculation helper
+  const getCardInvoice = (c: CreditCardType) => {
+    const list = cardPurchases.filter((p) => p.cardId === c.id);
+    if (list.length > 0) {
+      const filteredList = list.filter((p) => {
+        const { year, month } = parseDateMonthYear(p.billingDate);
+        if (selectedYear !== year) return false;
+        if (selectedMonth !== 'all' && selectedMonth !== month) return false;
+        return true;
+      });
+      return filteredList.reduce((sum, item) => sum + item.installmentAmount, 0);
+    }
+    return c.currentInvoice;
+  };
+
   // Total de Faturas dos Cartões
-  const totalCartoesFatura = cards.reduce((sum, c) => sum + c.currentInvoice, 0);
+  const totalCartoesFatura = useMemo(() => {
+    return cards.reduce((sum, c) => sum + getCardInvoice(c), 0);
+  }, [cards, cardPurchases, selectedYear, selectedMonth]);
   const comprometimentoRendaCartao =
     totalSalario > 0 ? Math.min(100, Math.round((totalCartoesFatura / totalSalario) * 100)) : 0;
 
@@ -527,37 +550,43 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ transactions, cards, t
                 <th className="py-2 px-3">Fatura</th>
                 <th className="py-2 px-3">Limite Total</th>
                 <th className="py-2 px-3">Limite Disponível</th>
-                <th className="py-2 px-3">Vencimento</th>
+                <th className="py-2 px-3">Fechamento</th>
+                <th className="py-2 px-3">Dia do Vencimento</th>
                 <th className="py-2 px-3">Status</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-zinc-800/50">
-              {cards.map((c) => (
-                <tr key={c.id} className="hover:bg-zinc-900/50">
-                  <td className="py-2.5 px-3 font-semibold text-white">{c.name}</td>
-                  <td className="py-2.5 px-3 font-mono-num font-bold text-rose-400">
-                    {formatCurrency(c.currentInvoice)}
-                  </td>
-                  <td className="py-2.5 px-3 font-mono-num text-zinc-300">
-                    {formatCurrency(c.limit)}
-                  </td>
-                  <td className="py-2.5 px-3 font-mono-num text-[#00ff7f]">
-                    {formatCurrency(Math.max(0, c.limit - c.currentInvoice))}
-                  </td>
-                  <td className="py-2.5 px-3 text-zinc-400">{formatDateDisplay(c.dueDate)}</td>
-                  <td className="py-2.5 px-3">
-                    <span
-                      className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                        c.paidThisMonth
-                          ? 'bg-[#00ff7f]/15 text-[#00ff7f]'
-                          : 'bg-rose-500/15 text-rose-400'
-                      }`}
-                    >
-                      {c.paidThisMonth ? 'Pago' : 'Em Aberto'}
-                    </span>
-                  </td>
-                </tr>
-              ))}
+              {cards.map((c) => {
+                const invoice = getCardInvoice(c);
+                const available = Math.max(0, c.limit - invoice);
+                return (
+                  <tr key={c.id} className="hover:bg-zinc-900/50">
+                    <td className="py-2.5 px-3 font-semibold text-white">{c.name}</td>
+                    <td className="py-2.5 px-3 font-mono-num font-bold text-rose-400">
+                      {formatCurrency(invoice)}
+                    </td>
+                    <td className="py-2.5 px-3 font-mono-num text-zinc-300">
+                      {formatCurrency(c.limit)}
+                    </td>
+                    <td className="py-2.5 px-3 font-mono-num text-[#00ff7f]">
+                      {formatCurrency(available)}
+                    </td>
+                    <td className="py-2.5 px-3 text-zinc-400 font-mono">Dia {c.closingDay || 1}</td>
+                    <td className="py-2.5 px-3 text-zinc-400 font-mono">Dia {c.dueDay || c.dueDate || 10}</td>
+                    <td className="py-2.5 px-3">
+                      <span
+                        className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                          c.paidThisMonth
+                            ? 'bg-[#00ff7f]/15 text-[#00ff7f]'
+                            : 'bg-rose-500/15 text-rose-400'
+                        }`}
+                      >
+                        {c.paidThisMonth ? 'Pago' : 'Em Aberto'}
+                      </span>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>

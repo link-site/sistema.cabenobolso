@@ -13,7 +13,7 @@ import {
   Layers,
   Sparkles,
 } from 'lucide-react';
-import { Transaction, CreditCard as CreditCardType } from '../types';
+import { Transaction, CreditCard as CreditCardType, CardPurchase } from '../types';
 import {
   formatCurrency,
   MONTH_NAMES,
@@ -24,12 +24,14 @@ import {
 interface DashboardViewProps {
   transactions: Transaction[];
   cards: CreditCardType[];
+  cardPurchases?: CardPurchase[];
   onNavigateToMonth?: (year: number, month: number) => void;
 }
 
 export const DashboardView: React.FC<DashboardViewProps> = ({
   transactions,
   cards,
+  cardPurchases = [],
   onNavigateToMonth,
 }) => {
   const [selectedYear, setSelectedYear] = useState<number>(2026);
@@ -109,9 +111,21 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   );
 
   // Cards summary
+  const getCardInvoice = (c: CreditCardType) => {
+    const list = cardPurchases.filter((p) => p.cardId === c.id);
+    if (list.length > 0) {
+      const curMonthList = list.filter((p) => {
+        const { year, month } = parseDateMonthYear(p.billingDate);
+        return year === 2026 && month === 8; // September 2026
+      });
+      return curMonthList.reduce((sum, item) => sum + item.installmentAmount, 0);
+    }
+    return c.currentInvoice;
+  };
+
   const totalCardInvoices = useMemo(
-    () => cards.reduce((sum, c) => sum + c.currentInvoice, 0),
-    [cards]
+    () => cards.reduce((sum, c) => sum + getCardInvoice(c), 0),
+    [cards, cardPurchases]
   );
   const totalCardLimits = useMemo(
     () => cards.reduce((sum, c) => sum + c.limit, 0),
@@ -435,7 +449,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {cards.map((card) => {
-            const usage = Math.min(100, Math.round((card.currentInvoice / card.limit) * 100));
+            const invoiceVal = getCardInvoice(card);
+            const usage = Math.min(100, Math.round((invoiceVal / card.limit) * 100));
 
             return (
               <div
@@ -459,7 +474,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                   <div className="mt-3 flex items-baseline justify-between">
                     <span className="text-xs text-zinc-400">Fatura:</span>
                     <span className="text-lg font-black font-mono-num text-rose-400">
-                      {formatCurrency(card.currentInvoice)}
+                      {formatCurrency(invoiceVal)}
                     </span>
                   </div>
 
