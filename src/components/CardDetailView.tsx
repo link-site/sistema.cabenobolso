@@ -25,6 +25,7 @@ import {
   MONTH_ABBR,
   YEARS_UP_TO_2030,
   parseDateMonthYear,
+  getActiveCardBillingMonth,
 } from '../utils/formatters';
 import { AddCardPurchaseModal } from './AddCardPurchaseModal';
 
@@ -58,9 +59,10 @@ export const CardDetailView: React.FC<CardDetailViewProps> = ({
   onToggleCardPaid,
   onDeleteCard,
 }) => {
-  // Current view year & month state (Defaults to 2026 / current month)
-  const [selectedYear, setSelectedYear] = useState<number>(2026);
-  const [selectedMonth, setSelectedMonth] = useState<number>(8); // September (0-indexed)
+  // Mês e ano ativo da fatura do cartão (mês seguinte ao calendário atual)
+  const activeBilling = useMemo(() => getActiveCardBillingMonth(), []);
+  const [selectedYear, setSelectedYear] = useState<number>(activeBilling.year);
+  const [selectedMonth, setSelectedMonth] = useState<number>(activeBilling.month);
   const [viewAllMonths, setViewAllMonths] = useState<boolean>(false);
   const [searchTerm, setSearchTerm] = useState<string>('');
 

@@ -19,7 +19,13 @@ import {
   Layers,
 } from 'lucide-react';
 import { CreditCard, CardPurchase } from '../types';
-import { formatCurrency, formatDateDisplay, parseDateMonthYear } from '../utils/formatters';
+import {
+  formatCurrency,
+  formatDateDisplay,
+  parseDateMonthYear,
+  getActiveCardBillingMonth,
+  MONTH_NAMES,
+} from '../utils/formatters';
 import { AddCreditCardModal } from './AddCreditCardModal';
 import { CardDetailView } from './CardDetailView';
 import { AddCardPurchaseModal } from './AddCardPurchaseModal';
@@ -92,10 +98,11 @@ export const CreditCardsView: React.FC<CreditCardsViewProps> = ({
     );
   }
 
-  // Calculate current month's total purchases across all cards
-  const now = new Date();
-  const curYear = 2026; // or now.getFullYear()
-  const curMonth = 8; // September 2026
+  // Mês atual no card do cartão é sempre o mês seguinte ao mês calendário atual.
+  // Exemplo: se estamos em setembro, o mês atual da fatura é outubro.
+  const activeBilling = getActiveCardBillingMonth();
+  const curYear = activeBilling.year;
+  const curMonth = activeBilling.month;
 
   const totalInvoices = cards.reduce((acc, c) => {
     const cardPurchasesList = cardPurchases.filter((p) => p.cardId === c.id);
@@ -177,14 +184,19 @@ export const CreditCardsView: React.FC<CreditCardsViewProps> = ({
       {/* Cards Overview Stats */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="bg-[#121217] border border-zinc-800 rounded-2xl p-4">
-          <span className="text-xs font-semibold text-zinc-400 uppercase tracking-wider block">
-            Fatura Total em Aberto
-          </span>
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-semibold text-zinc-400 uppercase tracking-wider block">
+              Fatura Total em Aberto
+            </span>
+            <span className="text-[10px] font-bold text-[#00ff7f] px-2 py-0.5 rounded-full bg-[#00ff7f]/10 border border-[#00ff7f]/30 uppercase">
+              {MONTH_NAMES[curMonth]}
+            </span>
+          </div>
           <span className="text-2xl font-black font-mono-num text-rose-400 block mt-1">
             {formatCurrency(totalInvoices)}
           </span>
           <span className="text-[11px] text-zinc-500 mt-1 block">
-            Soma das compras e parcelas deste mês
+            Faturas ativas do cartão ({MONTH_NAMES[curMonth]} de {curYear})
           </span>
         </div>
 
@@ -331,15 +343,20 @@ export const CreditCardsView: React.FC<CreditCardsViewProps> = ({
                   {/* Fatura e Limite */}
                   <div className="grid grid-cols-2 gap-2 p-3 rounded-xl bg-[#141418] border border-zinc-800">
                     <div>
-                      <span className="text-[10px] text-zinc-400 uppercase tracking-wider block">
-                        Fatura do Mês
-                      </span>
+                      <div className="flex items-center gap-1 mb-0.5">
+                        <span className="text-[10px] text-zinc-400 uppercase tracking-wider block font-medium">
+                          Fatura do Mês
+                        </span>
+                        <span className="text-[10px] font-bold text-[#00ff7f] uppercase">
+                          ({MONTH_NAMES[curMonth]})
+                        </span>
+                      </div>
                       <span className="text-lg font-black font-mono-num text-rose-400">
                         {formatCurrency(currentInvoice)}
                       </span>
                     </div>
                     <div>
-                      <span className="text-[10px] text-zinc-400 uppercase tracking-wider block">
+                      <span className="text-[10px] text-zinc-400 uppercase tracking-wider block mb-0.5">
                         Disponível
                       </span>
                       <span className="text-lg font-black font-mono-num text-[#00ff7f]">

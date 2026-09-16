@@ -19,6 +19,7 @@ import {
   MONTH_NAMES,
   parseDateMonthYear,
   formatDateDisplay,
+  getActiveCardBillingMonth,
 } from '../utils/formatters';
 
 interface DashboardViewProps {
@@ -110,13 +111,15 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     [monthlyData]
   );
 
+  const activeBilling = useMemo(() => getActiveCardBillingMonth(), []);
+
   // Cards summary
   const getCardInvoice = (c: CreditCardType) => {
     const list = cardPurchases.filter((p) => p.cardId === c.id);
     if (list.length > 0) {
       const curMonthList = list.filter((p) => {
         const { year, month } = parseDateMonthYear(p.billingDate);
-        return year === 2026 && month === 8; // September 2026
+        return year === activeBilling.year && month === activeBilling.month;
       });
       return curMonthList.reduce((sum, item) => sum + item.installmentAmount, 0);
     }
@@ -443,7 +446,10 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             </h3>
           </div>
           <span className="text-xs text-zinc-400">
-            Total Faturas: <span className="text-rose-400 font-bold font-mono-num">{formatCurrency(totalCardInvoices)}</span>
+            Total Faturas ({MONTH_NAMES[activeBilling.month]}):{' '}
+            <span className="text-rose-400 font-bold font-mono-num">
+              {formatCurrency(totalCardInvoices)}
+            </span>
           </span>
         </div>
 
@@ -472,7 +478,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                   </div>
 
                   <div className="mt-3 flex items-baseline justify-between">
-                    <span className="text-xs text-zinc-400">Fatura:</span>
+                    <span className="text-xs text-zinc-400">
+                      Fatura ({MONTH_NAMES[activeBilling.month]}):
+                    </span>
                     <span className="text-lg font-black font-mono-num text-rose-400">
                       {formatCurrency(invoiceVal)}
                     </span>

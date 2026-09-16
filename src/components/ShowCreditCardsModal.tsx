@@ -1,7 +1,13 @@
 import React from 'react';
 import { X, CreditCard as CreditCardIcon, Plus, ExternalLink, Calendar, CheckCircle2, Clock } from 'lucide-react';
 import { CreditCard, CardPurchase } from '../types';
-import { formatCurrency, formatDateDisplay, parseDateMonthYear } from '../utils/formatters';
+import {
+  formatCurrency,
+  formatDateDisplay,
+  parseDateMonthYear,
+  getActiveCardBillingMonth,
+  MONTH_NAMES,
+} from '../utils/formatters';
 
 interface ShowCreditCardsModalProps {
   isOpen: boolean;
@@ -24,12 +30,14 @@ export const ShowCreditCardsModal: React.FC<ShowCreditCardsModalProps> = ({
 }) => {
   if (!isOpen) return null;
 
+  const activeBilling = getActiveCardBillingMonth();
+
   const getCardInvoice = (c: CreditCard) => {
     const list = cardPurchases.filter((p) => p.cardId === c.id);
     if (list.length > 0) {
       const curMonthList = list.filter((p) => {
         const { year, month } = parseDateMonthYear(p.billingDate);
-        return year === 2026 && month === 8;
+        return year === activeBilling.year && month === activeBilling.month;
       });
       return curMonthList.reduce((sum, item) => sum + item.installmentAmount, 0);
     }
@@ -81,7 +89,7 @@ export const ShowCreditCardsModal: React.FC<ShowCreditCardsModalProps> = ({
         <div className="grid grid-cols-2 gap-3 my-4">
           <div className="bg-[#18181b] border border-zinc-800 rounded-xl p-3.5">
             <span className="text-xs text-zinc-400 uppercase tracking-wider block mb-1">
-              Total Faturas em Aberto
+              Faturas em Aberto ({MONTH_NAMES[activeBilling.month]})
             </span>
             <span className="text-lg font-bold font-mono-num text-rose-400">
               {formatCurrency(totalInvoices)}
@@ -143,7 +151,9 @@ export const ShowCreditCardsModal: React.FC<ShowCreditCardsModalProps> = ({
                     </div>
 
                     <div className="text-right">
-                      <span className="text-[11px] text-zinc-400 block">Fatura Atual</span>
+                      <span className="text-[11px] text-zinc-400 block">
+                        Fatura ({MONTH_NAMES[activeBilling.month]})
+                      </span>
                       <span className="text-base font-bold font-mono-num text-rose-400">
                         {formatCurrency(invoiceVal)}
                       </span>

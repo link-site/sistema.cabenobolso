@@ -81,16 +81,31 @@ export const parseDateMonthYear = (dateStr: string): { year: number; month: numb
 export const YEARS_UP_TO_2030 = [2024, 2025, 2026, 2027, 2028, 2029, 2030] as const;
 
 /**
- * Calculates the billing cycle { billingYear, billingMonth } (0-indexed month)
- * for a purchase date based on the credit card's closing day (1-31).
+ * Retorna o mês e ano ativo da fatura dos cartões de crédito.
+ * Regra do sistema: No card do cartão o mês atual é sempre o mês seguinte ao mês calendário atual.
+ * Exemplo: Se estamos em setembro (mês calendário 8), o mês atual da fatura do cartão é outubro (mês 9).
+ */
+export const getActiveCardBillingMonth = (
+  baseDate: Date = new Date()
+): { year: number; month: number } => {
+  const calYear = baseDate.getFullYear();
+  const calMonth = baseDate.getMonth(); // 0-indexed: 8 = Setembro
+  const nextDate = new Date(calYear, calMonth + 1, 1);
+  return {
+    year: nextDate.getFullYear(),
+    month: nextDate.getMonth(), // 9 = Outubro
+  };
+};
+
+/**
+ * Calcula o ciclo de fatura { billingYear, billingMonth } (mês 0-indexed)
+ * para a data de uma compra com base no dia de fechamento do cartão (1-31).
  *
- * - If closingDay === 1:
- *   Purchases in month M up to 01 of month M+1 belong to month M (e.g. 01/09 to 01/10 belong to September).
- *   On day 1 of month M (e.g. 01/10), it closes month M-1 (September).
- *   Purchases from 02/10 to 01/11 belong to October.
- * - If closingDay > 1 (e.g. 10, 15, 20, 25):
- *   Purchases in month M on day <= closingDay belong to month M.
- *   Purchases in month M on day > closingDay belong to month M + 1.
+ * Regra do usuário:
+ * "Todas as compras realizadas no mês até a data do fechamento entram no mesmo mês da compra
+ * e compras realizadas após o fechamento entram no mês seguinte.
+ * Ex: Fechamento todo dia primeiro, então de 01/09/2026 a 01/10/2026 todas as compras realizadas
+ * entram no mês 10 que é o mês seguinte."
  */
 export const calculateBillingCycle = (
   purchaseDateStr: string,
@@ -98,8 +113,8 @@ export const calculateBillingCycle = (
 ): { billingYear: number; billingMonth: number } => {
   const parts = (purchaseDateStr || '').split('-');
   if (parts.length < 3) {
-    const now = new Date();
-    return { billingYear: now.getFullYear(), billingMonth: now.getMonth() };
+    const active = getActiveCardBillingMonth();
+    return { billingYear: active.year, billingMonth: active.month };
   }
   const year = parseInt(parts[0], 10);
   const month = parseInt(parts[1], 10) - 1; // 0-indexed: 0 = Jan, 8 = Sep
@@ -108,19 +123,20 @@ export const calculateBillingCycle = (
   const safeClosing = Math.max(1, Math.min(31, closingDay || 1));
 
   if (safeClosing === 1) {
-    // User cycle example: "estamos no mês de setembro, ciclo começou 01/09 e termina 01/10"
-    // Purchases on day 1 of month M (e.g. 01/10) belong to the cycle of month M-1 (September).
-    // Purchases on days 2..31 of month M belong to month M.
-    if (day === 1) {
-      const prev = new Date(year, month - 1, 1);
-      return { billingYear: prev.getFullYear(), billingMonth: prev.getMonth() };
-    } else {
+    // Fechamento no dia 1:
+    // Ex: compras em setembro (ex: 16/09) e até 01/10 entram na fatura do mês 10 (Outubro).
+    // No dia 1 do mês M (ex: 01/10), encerra o ciclo de setembro e entra na fatura de Outubro (month).
+    // Compras após o dia 1 do mês M (ex: 16/09) entram na fatura do mês seguinte M + 1 (Outubro).
+    if (day <= 1) {
       return { billingYear: year, billingMonth: month };
+    } else {
+      const next = new Date(year, month + 1, 1);
+      return { billingYear: next.getFullYear(), billingMonth: next.getMonth() };
     }
   } else {
-    // Standard credit card cutoff:
-    // If purchase day <= closing day, it belongs to the current month's invoice.
-    // If purchase day > closing day, invoice is closed, it belongs to next month's invoice.
+    // Fechamento em outro dia (ex: dia 10, 15, 20):
+    // Compras até o dia de fechamento entram na fatura deste mês.
+    // Compras após o dia de fechamento entram na fatura do mês seguinte.
     if (day <= safeClosing) {
       return { billingYear: year, billingMonth: month };
     } else {
