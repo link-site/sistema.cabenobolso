@@ -157,7 +157,7 @@ export const AddCardPurchaseModal: React.FC<AddCardPurchaseModalProps> = ({
     return previewList;
   }, [parsedTotalAmount, installmentCount, startMonth, startYear, card.dueDate]);
 
-  // Client-side image compressor & reader
+  // Client-side image compressor & reader (redimensiona para máx 1200px e comprime para evitar estouro de timeout/payload)
   const processImageFile = async (file: File): Promise<string> => {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
@@ -165,7 +165,7 @@ export const AddCardPurchaseModal: React.FC<AddCardPurchaseModalProps> = ({
         const result = e.target?.result as string;
         const img = new Image();
         img.onload = () => {
-          const MAX_DIM = 1600;
+          const MAX_DIM = 1200;
           let { width, height } = img;
           if (width > MAX_DIM || height > MAX_DIM) {
             if (width > height) {
@@ -182,7 +182,7 @@ export const AddCardPurchaseModal: React.FC<AddCardPurchaseModalProps> = ({
           const ctx = canvas.getContext('2d');
           if (ctx) {
             ctx.drawImage(img, 0, 0, width, height);
-            resolve(canvas.toDataURL('image/jpeg', 0.88));
+            resolve(canvas.toDataURL('image/jpeg', 0.78));
           } else {
             resolve(result);
           }
@@ -208,6 +208,9 @@ export const AddCardPurchaseModal: React.FC<AddCardPurchaseModalProps> = ({
     setScanSuccessMsg('');
     setErrorMsg('');
 
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 25000);
+
     try {
       const base64Image = await processImageFile(file);
 
@@ -216,15 +219,39 @@ export const AddCardPurchaseModal: React.FC<AddCardPurchaseModalProps> = ({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           image: base64Image,
-          mimeType: file.type || 'image/jpeg',
+          mimeType: 'image/jpeg',
           defaultYear: startYear || 2026,
         }),
+        signal: controller.signal,
       });
 
-      const data = await response.json();
+      clearTimeout(timeoutId);
+
+      const rawText = await response.text();
+      let data: any = null;
+
+      try {
+        data = JSON.parse(rawText);
+      } catch {
+        // Trata respostas HTML ou texto de proxies/Cloud Run (ex: 502, 504, 413, "The page cannot be displayed")
+        if (response.status === 504 || response.status === 408) {
+          throw new Error('O processamento demorou mais que o esperado. Por favor, tente novamente.');
+        }
+        if (response.status === 413) {
+          throw new Error('A imagem é muito grande. Recorte apenas a lista de compras e tente novamente.');
+        }
+        if (
+          rawText.toLowerCase().includes('the page') ||
+          rawText.toLowerCase().includes('timeout') ||
+          rawText.toLowerCase().includes('gateway')
+        ) {
+          throw new Error('A conexão com o servidor oscilou ou expirou. Por favor, clique em "Tentar Novamente".');
+        }
+        throw new Error(`Erro na comunicação com o servidor (${response.status}). Por favor, tente novamente.`);
+      }
 
       if (!response.ok || !data.success) {
-        throw new Error(data.error || 'Falha ao ler os dados do print.');
+        throw new Error(data?.error || 'Falha ao ler os dados do print.');
       }
 
       const purchases = data.purchases || [];
@@ -268,9 +295,15 @@ export const AddCardPurchaseModal: React.FC<AddCardPurchaseModalProps> = ({
         setScanSuccessMsg(`Identificadas ${items.length} compras no print! Selecione quais deseja adicionar.`);
       }
     } catch (err: any) {
+      clearTimeout(timeoutId);
       console.error('Erro ao ler print:', err);
-      setScanError(err.message || 'Erro de comunicação ao ler imagem. Tente novamente.');
+      if (err.name === 'AbortError') {
+        setScanError('O processamento demorou mais de 25 segundos e foi cancelado para não travar o app. Por favor, recorte o print para incluir apenas as compras e tente novamente.');
+      } else {
+        setScanError(err.message || 'Erro de comunicação ao ler imagem. Tente novamente.');
+      }
     } finally {
+      clearTimeout(timeoutId);
       setIsScanning(false);
       if (fileInputRef.current) {
         fileInputRef.current.value = '';

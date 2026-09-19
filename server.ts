@@ -31,7 +31,22 @@ async function startServer() {
     res.json({ status: 'ok', timestamp: new Date().toISOString() });
   });
 
-  // Endpoint para analisar imagem de print/fatura do cartão com Gemini 3.8 Flash
+  // Helper para chamar o Gemini com timeout individual de 12 segundos
+  const generateWithTimeout = async (
+    ai: GoogleGenAI,
+    model: string,
+    params: any,
+    timeoutMs = 12000
+  ): Promise<any> => {
+    return Promise.race([
+      ai.models.generateContent(params),
+      new Promise((_, reject) =>
+        setTimeout(() => reject(new Error(`Timeout de ${timeoutMs}ms excedido para ${model}`)), timeoutMs)
+      ),
+    ]);
+  };
+
+  // Endpoint para analisar imagem de print/fatura do cartão com Gemini
   app.post('/api/scan-card-invoice', async (req, res) => {
     try {
       const { image, mimeType = 'image/jpeg', defaultYear } = req.body;
@@ -98,17 +113,18 @@ Responda ESTRITAMENTE em formato JSON com a seguinte estrutura:
 
       const ai = getGeminiClient();
 
-      // Estratégia de resiliência: tenta gemini-3.8-flash, gemini-flash-latest e gemini-3.1-flash-lite com retries automáticos
+      // Modelos rápidos para tentar sequencialmente sem estourar o timeout da rota
       const modelsToTry = ['gemini-3.8-flash', 'gemini-flash-latest', 'gemini-3.1-flash-lite'];
       let response: any = null;
       let lastCallError: any = null;
 
       for (const modelCandidate of modelsToTry) {
-        let success = false;
-        for (let attempt = 1; attempt <= 2; attempt++) {
-          try {
-            console.log(`[Gemini OCR] Tentando com modelo '${modelCandidate}' (tentativa ${attempt})...`);
-            response = await ai.models.generateContent({
+        try {
+          console.log(`[Gemini OCR] Tentando com modelo '${modelCandidate}'...`);
+          response = await generateWithTimeout(
+            ai,
+            modelCandidate,
+            {
               model: modelCandidate,
               contents: [
                 {
@@ -129,35 +145,18 @@ Responda ESTRITAMENTE em formato JSON com a seguinte estrutura:
               config: {
                 responseMimeType: 'application/json',
               },
-            });
-            if (response && response.text) {
-              success = true;
-              console.log(`[Gemini OCR] Sucesso com modelo '${modelCandidate}'!`);
-              break;
-            }
-          } catch (err: any) {
-            lastCallError = err;
-            const errStr = String(err?.message || err || '');
-            const isDemandOrTransient =
-              errStr.includes('503') ||
-              errStr.includes('UNAVAILABLE') ||
-              errStr.includes('high demand') ||
-              errStr.includes('Resource has been exhausted') ||
-              errStr.includes('429');
+            },
+            11000 // 11 segundos max por modelo para resposta rápida
+          );
 
-            console.warn(`[Gemini OCR] Aviso modelo '${modelCandidate}' (tentativa ${attempt}):`, errStr);
-
-            if (isDemandOrTransient) {
-              // Pausa antes de tentar novamente ou passar para o próximo modelo
-              await new Promise((resolve) => setTimeout(resolve, 1000 * attempt));
-            } else {
-              // Se for erro definitivo (ex: autenticação), não insiste
-              break;
-            }
+          if (response && response.text) {
+            console.log(`[Gemini OCR] Sucesso com modelo '${modelCandidate}'!`);
+            break;
           }
-        }
-        if (success && response) {
-          break;
+        } catch (err: any) {
+          lastCallError = err;
+          console.warn(`[Gemini OCR] Modelo '${modelCandidate}' falhou ou demorou:`, err?.message || err);
+          // Passa imediatamente para o próximo modelo alternativo
         }
       }
 
@@ -170,7 +169,6 @@ Responda ESTRITAMENTE em formato JSON com a seguinte estrutura:
       try {
         parsedData = JSON.parse(responseText);
       } catch (parseErr) {
-        // Fallback para caso o modelo envie com blocos markdown ```json
         const cleaned = responseText.replace(/^```json\s*/i, '').replace(/\s*```$/i, '').trim();
         parsedData = JSON.parse(cleaned);
       }
@@ -192,7 +190,7 @@ Responda ESTRITAMENTE em formato JSON com a seguinte estrutura:
       });
     } catch (error: any) {
       console.error('Erro no /api/scan-card-invoice:', error);
-      const errMsg = error.message || '';
+      const errMsg = String(error?.message || error || '');
       let userFriendlyMsg = errMsg || 'Falha ao processar imagem da fatura.';
 
       if (errMsg.includes('reported as leaked') || errMsg.includes('API key was reported as leaked')) {
@@ -208,7 +206,10 @@ Responda ESTRITAMENTE em formato JSON com a seguinte estrutura:
         errMsg.includes('Resource has been exhausted')
       ) {
         userFriendlyMsg =
-          'O Google está com alta demanda momentânea no modelo (código 503). O sistema tentou modelos alternativos automaticamente. Por favor, aguarde alguns segundos e clique no botão Tentar Novamente.';
+          'O Google está com alta demanda momentânea nos modelos Flash. Por favor, aguarde alguns segundos e clique no botão Tentar Novamente.';
+      } else if (errMsg.includes('Timeout')) {
+        userFriendlyMsg =
+          'O processamento da imagem demorou mais que o esperado pelo servidor. Por favor, tente novamente com um print mais leve ou recortado.';
       }
 
       return res.status(500).json({
@@ -216,6 +217,24 @@ Responda ESTRITAMENTE em formato JSON com a seguinte estrutura:
         error: userFriendlyMsg,
       });
     }
+  });
+
+  // Middleware global de erro do Express (garante SEMPRE resposta JSON em vez de HTML)
+  app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+    if (err) {
+      console.error('Express Error Handler:', err);
+      if (err.type === 'entity.too.large') {
+        return res.status(413).json({
+          success: false,
+          error: 'A imagem enviada é muito grande. Por favor, recorte apenas a área das compras e envie novamente.',
+        });
+      }
+      return res.status(err.status || 500).json({
+        success: false,
+        error: err.message || 'Erro interno no servidor ao processar os dados.',
+      });
+    }
+    next();
   });
 
   // Vite middleware em desenvolvimento, static em produção
