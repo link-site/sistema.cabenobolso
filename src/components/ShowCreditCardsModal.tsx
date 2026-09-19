@@ -1,12 +1,27 @@
-import React from 'react';
-import { X, CreditCard as CreditCardIcon, Plus, ExternalLink, Calendar, CheckCircle2, Clock } from 'lucide-react';
-import { CreditCard, CardPurchase } from '../types';
+import React, { useState } from 'react';
+import {
+  X,
+  CreditCard as CreditCardIcon,
+  Plus,
+  ExternalLink,
+  Calendar,
+  CheckCircle2,
+  Clock,
+  PlusCircle,
+  AlertCircle,
+  ArrowRight,
+  Sparkles,
+  Layers,
+  Edit2,
+  Check,
+} from 'lucide-react';
+import { CreditCard, CardPurchase, Transaction } from '../types';
 import {
   formatCurrency,
   formatDateDisplay,
   parseDateMonthYear,
-  getActiveCardBillingMonth,
   MONTH_NAMES,
+  buildClampedDate,
 } from '../utils/formatters';
 
 interface ShowCreditCardsModalProps {
@@ -14,9 +29,13 @@ interface ShowCreditCardsModalProps {
   onClose: () => void;
   cards: CreditCard[];
   cardPurchases?: CardPurchase[];
+  selectedYear: number;
+  selectedMonth: number;
+  transactions?: Transaction[];
   onNavigateToCards: () => void;
   onOpenAddNewCard: () => void;
   onTogglePaid: (id: string) => void;
+  onIncludeCardInBudget: (card: CreditCard, amount: number, dueDateStr: string) => void;
 }
 
 export const ShowCreditCardsModal: React.FC<ShowCreditCardsModalProps> = ({
@@ -24,28 +43,108 @@ export const ShowCreditCardsModal: React.FC<ShowCreditCardsModalProps> = ({
   onClose,
   cards,
   cardPurchases = [],
+  selectedYear,
+  selectedMonth,
+  transactions = [],
   onNavigateToCards,
   onOpenAddNewCard,
   onTogglePaid,
+  onIncludeCardInBudget,
 }) => {
+  // Feedback message when card is included into the monthly list
+  const [successMsg, setSuccessMsg] = useState<string>('');
+  // Editable amount state per card (cardId -> custom amount string)
+  const [customAmounts, setCustomAmounts] = useState<Record<string, string>>({});
+  // Which card is currently having its amount edited
+  const [editingCardId, setEditingCardId] = useState<string | null>(null);
+
   if (!isOpen) return null;
 
-  const activeBilling = getActiveCardBillingMonth();
-
-  const getCardInvoice = (c: CreditCard) => {
-    const list = cardPurchases.filter((p) => p.cardId === c.id);
+  // Calculates invoice for the selected month/year
+  const getCardInvoiceForMonth = (card: CreditCard): number => {
+    const list = cardPurchases.filter((p) => p.cardId === card.id);
     if (list.length > 0) {
       const curMonthList = list.filter((p) => {
         const { year, month } = parseDateMonthYear(p.billingDate);
-        return year === activeBilling.year && month === activeBilling.month;
+        return year === selectedYear && month === selectedMonth;
       });
       return curMonthList.reduce((sum, item) => sum + item.installmentAmount, 0);
     }
-    return c.currentInvoice;
+    return card.currentInvoice || 0;
   };
 
-  const totalInvoices = cards.reduce((acc, c) => acc + getCardInvoice(c), 0);
+  // Find if card invoice is already in the monthly transactions list
+  const findExistingTransaction = (card: CreditCard): Transaction | undefined => {
+    return transactions.find((tx) => {
+      if (tx.type !== 'gasto') return false;
+      const { year, month } = parseDateMonthYear(tx.date);
+      if (year !== selectedYear || month !== selectedMonth) return false;
+      const txNameLower = tx.name.toLowerCase();
+      const cardNameLower = card.name.toLowerCase();
+      return (
+        txNameLower.includes(cardNameLower) ||
+        (tx.tag === 'Cartão de crédito' && txNameLower.includes(cardNameLower))
+      );
+    });
+  };
+
+  // Get current effective amount to include (custom or calculated)
+  const getEffectiveAmount = (card: CreditCard): number => {
+    if (customAmounts[card.id] !== undefined) {
+      const clean = customAmounts[card.id].replace(/[^\d.,]/g, '').replace(',', '.');
+      const val = parseFloat(clean);
+      return isNaN(val) ? 0 : val;
+    }
+    return getCardInvoiceForMonth(card);
+  };
+
+  // Include card invoice into transactions
+  const handleIncludeCard = (card: CreditCard) => {
+    const amount = getEffectiveAmount(card);
+    const dueDay = parseInt(card.dueDate, 10) || 10;
+    const dueDateStr = buildClampedDate(selectedYear, selectedMonth, dueDay);
+
+    onIncludeCardInBudget(card, amount, dueDateStr);
+
+    setSuccessMsg(
+      `✓ Fatura do cartão "${card.name}" (${formatCurrency(amount)}) incluída com sucesso na Lista de Movimentações de ${MONTH_NAMES[selectedMonth]} de ${selectedYear}!`
+    );
+
+    setTimeout(() => {
+      setSuccessMsg('');
+    }, 4500);
+  };
+
+  // Include all cards that are not yet launched
+  const handleIncludeAllCards = () => {
+    let count = 0;
+    cards.forEach((card) => {
+      const existing = findExistingTransaction(card);
+      if (!existing) {
+        const amount = getEffectiveAmount(card);
+        const dueDay = parseInt(card.dueDate, 10) || 10;
+        const dueDateStr = buildClampedDate(selectedYear, selectedMonth, dueDay);
+        onIncludeCardInBudget(card, amount, dueDateStr);
+        count++;
+      }
+    });
+
+    if (count > 0) {
+      setSuccessMsg(
+        `✓ ${count} fatura(s) de cartão incluída(s) com sucesso na Lista de Movimentações de ${MONTH_NAMES[selectedMonth]} de ${selectedYear}!`
+      );
+    } else {
+      setSuccessMsg('Todos os cartões já estão lançados na lista deste mês!');
+    }
+
+    setTimeout(() => {
+      setSuccessMsg('');
+    }, 4500);
+  };
+
+  const totalInvoices = cards.reduce((acc, c) => acc + getCardInvoiceForMonth(c), 0);
   const totalLimits = cards.reduce((acc, c) => acc + c.limit, 0);
+  const unlaunchedCardsCount = cards.filter((c) => !findExistingTransaction(c)).length;
 
   return (
     <div
@@ -55,7 +154,7 @@ export const ShowCreditCardsModal: React.FC<ShowCreditCardsModalProps> = ({
     >
       <div
         id="modal-show-cards-container"
-        className="bg-[#0f0f12] border border-[#27272a] rounded-2xl w-full max-w-2xl p-6 shadow-2xl relative max-h-[85vh] flex flex-col"
+        className="bg-[#0f0f12] border border-[#27272a] rounded-2xl w-full max-w-2xl p-6 shadow-2xl relative max-h-[90vh] flex flex-col"
         onClick={(e) => e.stopPropagation()}
         style={{
           boxShadow: '0 0 35px rgba(0, 255, 128, 0.15)',
@@ -68,11 +167,15 @@ export const ShowCreditCardsModal: React.FC<ShowCreditCardsModalProps> = ({
               <CreditCardIcon className="w-5 h-5" />
             </div>
             <div>
-              <h2 className="text-lg font-bold text-white tracking-wide">
+              <h2 className="text-lg font-bold text-white tracking-wide flex items-center gap-2">
                 Cartões de Crédito Cadastrados
               </h2>
               <p className="text-xs text-zinc-400">
-                Visualização rápida dos cartões gerenciados no Menu Cartões de Crédito
+                Mês de Referência:{' '}
+                <strong className="text-white">
+                  {MONTH_NAMES[selectedMonth]} de {selectedYear}
+                </strong>{' '}
+                • Inclua a fatura diretamente como gasto nas Movimentações
               </p>
             </div>
           </div>
@@ -85,23 +188,53 @@ export const ShowCreditCardsModal: React.FC<ShowCreditCardsModalProps> = ({
           </button>
         </div>
 
-        {/* Resumo rápido */}
-        <div className="grid grid-cols-2 gap-3 my-4">
-          <div className="bg-[#18181b] border border-zinc-800 rounded-xl p-3.5">
-            <span className="text-xs text-zinc-400 uppercase tracking-wider block mb-1">
-              Faturas em Aberto ({MONTH_NAMES[activeBilling.month]})
-            </span>
-            <span className="text-lg font-bold font-mono-num text-rose-400">
-              {formatCurrency(totalInvoices)}
-            </span>
+        {/* Feedback Alert Message */}
+        {successMsg && (
+          <div className="mt-4 p-3 rounded-xl bg-[#00ff7f]/15 border border-[#00ff7f]/40 text-[#00ff7f] text-xs font-semibold flex items-center gap-2 animate-fadeIn">
+            <CheckCircle2 className="w-4 h-4 shrink-0" />
+            <span>{successMsg}</span>
           </div>
-          <div className="bg-[#18181b] border border-zinc-800 rounded-xl p-3.5">
-            <span className="text-xs text-zinc-400 uppercase tracking-wider block mb-1">
-              Limite Total Disponível
-            </span>
-            <span className="text-lg font-bold font-mono-num text-[#00ff7f]">
-              {formatCurrency(Math.max(0, totalLimits - totalInvoices))}
-            </span>
+        )}
+
+        {/* Resumo rápido */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 my-4">
+          <div className="bg-[#18181b] border border-zinc-800 rounded-xl p-3.5 flex items-center justify-between">
+            <div>
+              <span className="text-xs text-zinc-400 uppercase tracking-wider block mb-0.5">
+                Faturas ({MONTH_NAMES[selectedMonth]}/{selectedYear})
+              </span>
+              <span className="text-xl font-bold font-mono-num text-rose-400">
+                {formatCurrency(totalInvoices)}
+              </span>
+            </div>
+            <div className="text-right">
+              <span className="text-[11px] text-zinc-400 block">Status no Mês</span>
+              <span className="text-xs font-bold text-zinc-300">
+                {cards.length - unlaunchedCardsCount} de {cards.length} incluídos
+              </span>
+            </div>
+          </div>
+
+          <div className="bg-[#18181b] border border-zinc-800 rounded-xl p-3.5 flex items-center justify-between">
+            <div>
+              <span className="text-xs text-zinc-400 uppercase tracking-wider block mb-0.5">
+                Limite Total Disponível
+              </span>
+              <span className="text-xl font-bold font-mono-num text-[#00ff7f]">
+                {formatCurrency(Math.max(0, totalLimits - totalInvoices))}
+              </span>
+            </div>
+            {unlaunchedCardsCount > 0 && (
+              <button
+                type="button"
+                onClick={handleIncludeAllCards}
+                className="px-3 py-1.5 rounded-lg bg-[#00ff7f]/15 hover:bg-[#00ff7f] text-[#00ff7f] hover:text-black border border-[#00ff7f]/30 font-bold text-xs transition-all flex items-center gap-1.5"
+                title="Incluir todos os cartões não lançados na lista do mês"
+              >
+                <PlusCircle className="w-3.5 h-3.5" />
+                <span>Incluir Todos ({unlaunchedCardsCount})</span>
+              </button>
+            )}
           </div>
         </div>
 
@@ -113,19 +246,24 @@ export const ShowCreditCardsModal: React.FC<ShowCreditCardsModalProps> = ({
             </div>
           ) : (
             cards.map((card) => {
-              const invoiceVal = getCardInvoice(card);
+              const invoiceVal = getCardInvoiceForMonth(card);
+              const effectiveAmount = getEffectiveAmount(card);
               const usedPercent = Math.min(100, Math.round((invoiceVal / card.limit) * 100));
               const available = Math.max(0, card.limit - invoiceVal);
+              const existingTx = findExistingTransaction(card);
+              const isEditing = editingCardId === card.id;
 
               return (
                 <div
                   key={card.id}
-                  className="bg-[#141417] border border-zinc-800 hover:border-zinc-700 rounded-xl p-4 transition-all"
+                  id={`card-modal-item-${card.id}`}
+                  className="bg-[#141417] border border-zinc-800 hover:border-zinc-700 rounded-2xl p-4 transition-all space-y-3.5"
                 >
+                  {/* Top: Card info and Invoice */}
                   <div className="flex items-start justify-between gap-3">
                     <div className="flex items-center gap-3">
                       <div
-                        className="w-10 h-7 rounded-md flex items-center justify-center text-[10px] font-bold text-white shadow-inner"
+                        className="w-10 h-8 rounded-lg flex items-center justify-center text-[10px] font-bold text-white shadow-inner"
                         style={{ backgroundColor: card.color || '#8a05be' }}
                       >
                         CARD
@@ -137,36 +275,80 @@ export const ShowCreditCardsModal: React.FC<ShowCreditCardsModalProps> = ({
                             {card.tag}
                           </span>
                         </h4>
-                        <div className="flex items-center gap-3 text-xs text-zinc-400 mt-1">
+                        <div className="flex items-center gap-3 text-xs text-zinc-400 mt-1 flex-wrap">
                           <span className="flex items-center gap-1">
                             <Clock className="w-3.5 h-3.5 text-zinc-500" />
-                            Fechamento: Dia {card.closingDay || 1}
+                            Fechamento: Dia <strong className="text-zinc-200">{card.closingDay || 1}</strong>
                           </span>
                           <span className="flex items-center gap-1">
                             <Calendar className="w-3.5 h-3.5 text-zinc-500" />
-                            Vencimento: Dia {card.dueDay || card.dueDate || 10}
+                            Vencimento: Dia{' '}
+                            <strong className="text-zinc-200">{card.dueDay || card.dueDate || 10}</strong>
                           </span>
                         </div>
                       </div>
                     </div>
 
-                    <div className="text-right">
+                    {/* Valor da Fatura com opção de edição */}
+                    <div className="text-right shrink-0">
                       <span className="text-[11px] text-zinc-400 block">
-                        Fatura ({MONTH_NAMES[activeBilling.month]})
+                        Fatura ({MONTH_NAMES[selectedMonth]})
                       </span>
-                      <span className="text-base font-bold font-mono-num text-rose-400">
-                        {formatCurrency(invoiceVal)}
-                      </span>
+
+                      {isEditing ? (
+                        <div className="flex items-center gap-1 mt-1">
+                          <span className="text-xs text-zinc-400">R$</span>
+                          <input
+                            type="text"
+                            autoFocus
+                            placeholder="0,00"
+                            value={
+                              customAmounts[card.id] !== undefined
+                                ? customAmounts[card.id]
+                                : invoiceVal.toFixed(2).replace('.', ',')
+                            }
+                            onChange={(e) =>
+                              setCustomAmounts((prev) => ({
+                                ...prev,
+                                [card.id]: e.target.value,
+                              }))
+                            }
+                            className="w-24 bg-[#1f1f27] border border-[#00ff7f] rounded-lg px-2 py-1 text-xs text-white font-mono font-bold focus:outline-none text-right"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setEditingCardId(null)}
+                            className="p-1 rounded bg-[#00ff7f] text-black hover:bg-[#10ef80]"
+                            title="Confirmar valor"
+                          >
+                            <Check className="w-3.5 h-3.5 stroke-[3]" />
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="flex items-center justify-end gap-1.5 mt-0.5">
+                          <span className="text-base font-bold font-mono-num text-rose-400">
+                            {formatCurrency(effectiveAmount)}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => setEditingCardId(card.id)}
+                            className="p-1 text-zinc-500 hover:text-zinc-300 transition-colors"
+                            title="Ajustar valor da fatura a ser incluída"
+                          >
+                            <Edit2 className="w-3 h-3" />
+                          </button>
+                        </div>
+                      )}
                     </div>
                   </div>
 
                   {/* Barra de limite */}
-                  <div className="mt-3">
+                  <div>
                     <div className="flex justify-between text-[11px] text-zinc-400 mb-1">
                       <span>Limite usado: {usedPercent}%</span>
                       <span className="text-[#00ff7f]">Disponível: {formatCurrency(available)}</span>
                     </div>
-                    <div className="w-full bg-zinc-800 h-2 rounded-full overflow-hidden">
+                    <div className="w-full bg-zinc-800 h-1.5 rounded-full overflow-hidden">
                       <div
                         className={`h-full transition-all rounded-full ${
                           usedPercent > 80
@@ -180,30 +362,61 @@ export const ShowCreditCardsModal: React.FC<ShowCreditCardsModalProps> = ({
                     </div>
                   </div>
 
-                  {/* Status pagamento */}
-                  <div className="mt-3 pt-2.5 border-t border-zinc-800/80 flex items-center justify-between">
+                  {/* Action Bar: Incluir na Lista de Movimentações do Mês */}
+                  <div className="pt-2.5 border-t border-zinc-800/80 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+                    {/* Status de Pagamento */}
                     <button
                       type="button"
                       onClick={() => onTogglePaid(card.id)}
-                      className={`text-xs font-semibold px-3 py-1 rounded-lg flex items-center gap-1.5 transition-colors ${
+                      className={`text-xs font-semibold px-2.5 py-1 rounded-lg flex items-center gap-1.5 transition-colors self-start sm:self-auto ${
                         card.paidThisMonth
                           ? 'bg-[#00ff7f]/15 text-[#00ff7f] border border-[#00ff7f]/30'
-                          : 'bg-rose-500/15 text-rose-400 border border-rose-500/30 hover:bg-rose-500/25'
+                          : 'bg-zinc-800 text-zinc-300 border border-zinc-700 hover:bg-zinc-700'
                       }`}
                     >
                       {card.paidThisMonth ? (
                         <>
-                          <CheckCircle2 className="w-3.5 h-3.5" /> Fatura Paga
+                          <CheckCircle2 className="w-3.5 h-3.5 text-[#00ff7f]" />
+                          <span>Fatura Paga</span>
                         </>
                       ) : (
                         <>
-                          <Clock className="w-3.5 h-3.5" /> Fatura em Aberto (Clique p/ Pagar)
+                          <Clock className="w-3.5 h-3.5 text-zinc-400" />
+                          <span>Fatura em Aberto</span>
                         </>
                       )}
                     </button>
-                    <span className="text-xs text-zinc-500">
-                      Limite Total: {formatCurrency(card.limit)}
-                    </span>
+
+                    {/* BOTÃO PRINCIPAL: Incluir na lista de movimentações do mês */}
+                    <div className="flex items-center gap-2 self-end sm:self-auto">
+                      {existingTx ? (
+                        <div className="flex items-center gap-2">
+                          <span className="text-[11px] font-semibold text-[#00ff7f] flex items-center gap-1 bg-[#00ff7f]/10 border border-[#00ff7f]/30 px-2.5 py-1.5 rounded-xl">
+                            <CheckCircle2 className="w-3.5 h-3.5" />
+                            <span>Lançado ({formatCurrency(existingTx.amount)})</span>
+                          </span>
+
+                          <button
+                            type="button"
+                            onClick={() => handleIncludeCard(card)}
+                            className="text-xs font-bold px-3 py-1.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white border border-zinc-700 transition-colors"
+                            title="Lançar novamente na lista de movimentações"
+                          >
+                            + Lançar Novamente
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          type="button"
+                          id={`btn-incluir-cartao-${card.id}`}
+                          onClick={() => handleIncludeCard(card)}
+                          className="flex items-center gap-2 px-4 py-2 rounded-xl bg-[#00ff7f] hover:bg-[#10ef80] text-black font-extrabold text-xs uppercase tracking-wider transition-all shadow-md shadow-[#00ff7f]/20 hover:scale-[1.02]"
+                        >
+                          <PlusCircle className="w-4 h-4 stroke-[2.5]" />
+                          <span>Incluir na Lista do Mês</span>
+                        </button>
+                      )}
+                    </div>
                   </div>
                 </div>
               );
@@ -212,14 +425,14 @@ export const ShowCreditCardsModal: React.FC<ShowCreditCardsModalProps> = ({
         </div>
 
         {/* Footer actions */}
-        <div className="pt-4 border-t border-zinc-800 flex items-center justify-between gap-3 mt-4">
+        <div className="pt-4 border-t border-zinc-800 flex items-center justify-between gap-3 mt-4 flex-wrap">
           <button
             type="button"
             onClick={() => {
               onClose();
               onOpenAddNewCard();
             }}
-            className="px-4 py-2.5 rounded-xl bg-[#00ff7f] text-black font-bold text-xs uppercase tracking-wider hover:bg-[#10ef80] transition-colors flex items-center gap-2 shadow-lg shadow-[#00ff7f]/20"
+            className="px-4 py-2.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 border border-zinc-700 text-zinc-300 hover:text-white font-bold text-xs uppercase tracking-wider transition-colors flex items-center gap-2"
           >
             <Plus className="w-4 h-4" />
             Cadastrar Novo Cartão
@@ -233,7 +446,7 @@ export const ShowCreditCardsModal: React.FC<ShowCreditCardsModalProps> = ({
             }}
             className="px-4 py-2.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-white font-semibold text-xs transition-colors flex items-center gap-2"
           >
-            Ir para Menu Cartões
+            <span>Ir para Menu Cartões</span>
             <ExternalLink className="w-3.5 h-3.5" />
           </button>
         </div>

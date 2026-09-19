@@ -17,6 +17,7 @@ import {
   ShoppingBag,
   Info,
   Camera,
+  Pencil,
 } from 'lucide-react';
 import { CreditCard, CardPurchase } from '../types';
 import {
@@ -29,6 +30,7 @@ import {
   getActiveCardBillingMonth,
 } from '../utils/formatters';
 import { AddCardPurchaseModal } from './AddCardPurchaseModal';
+import { EditCardPurchaseModal } from './EditCardPurchaseModal';
 
 interface CardDetailViewProps {
   card: CreditCard;
@@ -46,6 +48,17 @@ interface CardDetailViewProps {
   }) => void;
   onDeletePurchase: (id: string) => void;
   onDeletePurchaseGroup: (groupId: string) => void;
+  onUpdatePurchase?: (id: string, updated: Partial<CardPurchase>) => void;
+  onUpdatePurchaseGroup?: (
+    groupId: string,
+    updates: {
+      name?: string;
+      category?: string;
+      installmentAmount?: number;
+      totalAmount?: number;
+      purchaseDate?: string;
+    }
+  ) => void;
   onToggleCardPaid: (cardId: string) => void;
   onDeleteCard?: (id: string) => void;
 }
@@ -57,6 +70,8 @@ export const CardDetailView: React.FC<CardDetailViewProps> = ({
   onAddPurchase,
   onDeletePurchase,
   onDeletePurchaseGroup,
+  onUpdatePurchase,
+  onUpdatePurchaseGroup,
   onToggleCardPaid,
   onDeleteCard,
 }) => {
@@ -69,6 +84,9 @@ export const CardDetailView: React.FC<CardDetailViewProps> = ({
 
   // Modal for adding purchases
   const [isAddPurchaseModalOpen, setIsAddPurchaseModalOpen] = useState<boolean>(false);
+
+  // Modal for editing purchases
+  const [editingPurchase, setEditingPurchase] = useState<CardPurchase | null>(null);
 
   // In-app deletion states (replaces window.confirm for iframe reliability)
   const [purchaseToDelete, setPurchaseToDelete] = useState<CardPurchase | null>(null);
@@ -233,7 +251,7 @@ export const CardDetailView: React.FC<CardDetailViewProps> = ({
           </span>
           <div className="mt-2 flex items-center justify-between">
             <span className="text-[11px] text-zinc-500">
-              {monthSums[selectedMonth]?.count || 0} compras / parcelas
+              {monthSums[selectedMonth]?.count || 0} {monthSums[selectedMonth]?.count === 1 ? 'compra' : 'compras'}
             </span>
             <button
               type="button"
@@ -516,6 +534,17 @@ export const CardDetailView: React.FC<CardDetailViewProps> = ({
                       {/* Ações */}
                       <td className="py-3 px-4 text-center whitespace-nowrap">
                         <div className="flex items-center justify-center gap-1.5">
+                          {/* Editar Compra */}
+                          <button
+                            type="button"
+                            id={`btn-edit-purchase-${purchase.id}`}
+                            title="Editar informações desta compra"
+                            onClick={() => setEditingPurchase(purchase)}
+                            className="p-1.5 rounded-lg bg-zinc-800 text-zinc-400 hover:text-[#00ff7f] hover:bg-[#00ff7f]/15 transition-colors"
+                          >
+                            <Pencil className="w-3.5 h-3.5" />
+                          </button>
+
                           {/* Excluir Parcela Individual */}
                           <button
                             type="button"
@@ -723,6 +752,23 @@ export const CardDetailView: React.FC<CardDetailViewProps> = ({
           </div>
         </div>
       )}
+
+      {/* Modal Editar Compra / Parcela */}
+      <EditCardPurchaseModal
+        isOpen={!!editingPurchase}
+        onClose={() => setEditingPurchase(null)}
+        purchase={editingPurchase}
+        onSaveSingle={(id, updated) => {
+          if (onUpdatePurchase) {
+            onUpdatePurchase(id, updated);
+          }
+        }}
+        onSaveGroup={(groupId, updates) => {
+          if (onUpdatePurchaseGroup) {
+            onUpdatePurchaseGroup(groupId, updates);
+          }
+        }}
+      />
     </div>
   );
 };

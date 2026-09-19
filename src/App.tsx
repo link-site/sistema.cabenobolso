@@ -43,6 +43,8 @@ function MainApp() {
     addCardPurchaseWithInstallments,
     deleteCardPurchase,
     deleteCardPurchaseGroup,
+    updateCardPurchase,
+    updateCardPurchaseGroup,
     resetToDefault,
   } = useFirestoreFinance();
 
@@ -134,6 +136,8 @@ function MainApp() {
                   onAddCardPurchase={addCardPurchaseWithInstallments}
                   onDeleteCardPurchase={deleteCardPurchase}
                   onDeleteCardPurchaseGroup={deleteCardPurchaseGroup}
+                  onUpdateCardPurchase={updateCardPurchase}
+                  onUpdateCardPurchaseGroup={updateCardPurchaseGroup}
                   isAddModalOpen={isAddCardModalOpen}
                   setIsAddModalOpen={setIsAddCardModalOpen}
                 />

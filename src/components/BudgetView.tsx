@@ -471,10 +471,10 @@ export const BudgetView: React.FC<BudgetViewProps> = ({
           </button>
         </div>
 
-        {/* Note on Credit Cards Isolation */}
-        <div className="text-[11px] text-zinc-400 flex items-center gap-1.5 italic">
-          <Info className="w-3.5 h-3.5 text-zinc-500 flex-shrink-0" />
-          <span>Cartões são movimentados no menu Cartão de Crédito</span>
+        {/* Note on Credit Cards */}
+        <div className="text-[11px] text-zinc-400 flex items-center gap-1.5">
+          <Info className="w-3.5 h-3.5 text-violet-400 flex-shrink-0" />
+          <span>Use <strong className="text-violet-300">"Add Cartão de Crédito"</strong> para incluir faturas nas movimentações deste mês</span>
         </div>
       </div>
 
@@ -784,9 +784,23 @@ export const BudgetView: React.FC<BudgetViewProps> = ({
         onClose={() => setIsShowCardsModalOpen(false)}
         cards={cards}
         cardPurchases={cardPurchases}
+        selectedYear={selectedYear}
+        selectedMonth={selectedMonth}
+        transactions={transactions}
         onNavigateToCards={onNavigateToCardsTab}
         onOpenAddNewCard={onOpenAddCardModal}
         onTogglePaid={onToggleCardPaid}
+        onIncludeCardInBudget={(card, amount, dueDateStr) => {
+          onAddTransaction({
+            type: 'gasto',
+            name: `Fatura ${card.name}`,
+            amount: amount > 0 ? amount : 0,
+            tag: 'Cartão de crédito',
+            date: dueDateStr,
+            status: card.paidThisMonth ? 'Pago' : 'Não pago',
+            notes: `Fatura importada do cartão ${card.name} para ${MONTH_NAMES[selectedMonth]} de ${selectedYear}`,
+          });
+        }}
       />
     </div>
   );

@@ -49,6 +49,17 @@ interface CreditCardsViewProps {
   }) => void;
   onDeleteCardPurchase: (id: string) => void;
   onDeleteCardPurchaseGroup: (groupId: string) => void;
+  onUpdateCardPurchase?: (id: string, updated: Partial<CardPurchase>) => void;
+  onUpdateCardPurchaseGroup?: (
+    groupId: string,
+    updates: {
+      name?: string;
+      category?: string;
+      installmentAmount?: number;
+      totalAmount?: number;
+      purchaseDate?: string;
+    }
+  ) => void;
   isAddModalOpen: boolean;
   setIsAddModalOpen: (open: boolean) => void;
 }
@@ -63,6 +74,8 @@ export const CreditCardsView: React.FC<CreditCardsViewProps> = ({
   onAddCardPurchase,
   onDeleteCardPurchase,
   onDeleteCardPurchaseGroup,
+  onUpdateCardPurchase,
+  onUpdateCardPurchaseGroup,
   isAddModalOpen,
   setIsAddModalOpen,
 }) => {
@@ -89,6 +102,8 @@ export const CreditCardsView: React.FC<CreditCardsViewProps> = ({
         onAddPurchase={onAddCardPurchase}
         onDeletePurchase={onDeleteCardPurchase}
         onDeletePurchaseGroup={onDeleteCardPurchaseGroup}
+        onUpdatePurchase={onUpdateCardPurchase}
+        onUpdatePurchaseGroup={onUpdateCardPurchaseGroup}
         onToggleCardPaid={onTogglePaid}
         onDeleteCard={(id) => {
           setSelectedCardId(null);
@@ -392,7 +407,7 @@ export const CreditCardsView: React.FC<CreditCardsViewProps> = ({
                       Compras cadastradas:
                     </span>
                     <span className="font-bold text-white font-mono">
-                      {cardPurchasesList.length} parcelas
+                      {cardPurchasesList.length} {cardPurchasesList.length === 1 ? 'Compra' : 'Compras'}
                     </span>
                   </div>
 

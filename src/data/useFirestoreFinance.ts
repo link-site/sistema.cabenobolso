@@ -806,6 +806,69 @@ export function useFirestoreFinance() {
     }
   };
 
+  const updateCardPurchaseGroup = async (
+    purchaseGroupId: string,
+    updates: {
+      name?: string;
+      category?: string;
+      installmentAmount?: number;
+      totalAmount?: number;
+      purchaseDate?: string;
+    }
+  ) => {
+    if (!user) {
+      setCardPurchases((prev) =>
+        prev.map((p) => {
+          if (p.purchaseGroupId !== purchaseGroupId) return p;
+          return {
+            ...p,
+            name: updates.name !== undefined ? updates.name : p.name,
+            category: updates.category !== undefined ? updates.category : p.category,
+            installmentAmount:
+              updates.installmentAmount !== undefined
+                ? updates.installmentAmount
+                : p.installmentAmount,
+            totalAmount:
+              updates.totalAmount !== undefined ? updates.totalAmount : p.totalAmount,
+            purchaseDate:
+              updates.purchaseDate !== undefined ? updates.purchaseDate : p.purchaseDate,
+          };
+        })
+      );
+      return;
+    }
+
+    setIsSyncing(true);
+    try {
+      const purchasesColRef = collection(db, 'users', user.uid, 'card_purchases');
+      const snapshot = await getDocs(purchasesColRef);
+      const batch = writeBatch(db);
+
+      snapshot.forEach((docSnap) => {
+        const data = docSnap.data();
+        if (data.purchaseGroupId === purchaseGroupId) {
+          const docUpdate: any = {};
+          if (updates.name !== undefined) docUpdate.name = updates.name;
+          if (updates.category !== undefined) docUpdate.category = updates.category;
+          if (updates.installmentAmount !== undefined)
+            docUpdate.installmentAmount = updates.installmentAmount;
+          if (updates.totalAmount !== undefined)
+            docUpdate.totalAmount = updates.totalAmount;
+          if (updates.purchaseDate !== undefined)
+            docUpdate.purchaseDate = updates.purchaseDate;
+
+          batch.update(docSnap.ref, docUpdate);
+        }
+      });
+
+      await batch.commit();
+    } catch (err) {
+      console.error('Error updating card purchase group in Firestore:', err);
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
   const resetToDefault = async () => {
     if (!user) {
       setTransactions(INITIAL_TRANSACTIONS);
@@ -920,6 +983,7 @@ export function useFirestoreFinance() {
     deleteCardPurchase,
     deleteCardPurchaseGroup,
     updateCardPurchase,
+    updateCardPurchaseGroup,
     resetToDefault,
   };
 }
