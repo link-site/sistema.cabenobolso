@@ -301,10 +301,13 @@ export const AddCardPurchaseModal: React.FC<AddCardPurchaseModalProps> = ({
       try {
         data = JSON.parse(rawText);
       } catch {
-        // Trata respostas HTML ou texto de proxies/Cloud Run (ex: 502, 504, 413, cookie check)
+        // Trata respostas HTML ou texto de proxies/Cloud Run/Vercel (ex: 404, 502, 504, 413, cookie check)
         if (rawText.trim().startsWith('<') || (response.headers.get('content-type') || '').includes('text/html')) {
           if (rawText.includes('404') || response.status === 404) {
-            throw new Error('Servidor indisponível (404). Se você estiver usando o link compartilhado, certifique-se de que o app foi publicado via menu Share no AI Studio.');
+            if (typeof window !== 'undefined' && window.location.hostname.includes('vercel.app')) {
+              throw new Error('A rota /api/scan-card-invoice retornou 404 na Vercel. Atualize o deploy na Vercel com os novos arquivos (api/scan-card-invoice.ts e vercel.json) e adicione GEMINI_API_KEY no painel da Vercel.');
+            }
+            throw new Error('Servidor da API não encontrado (404). Verifique se o servidor de inteligência artificial está em execução.');
           }
           if (rawText.includes('cookie') || rawText.includes('Action required') || response.status === 302) {
             throw new Error('O navegador bloqueou os cookies de segurança da Google Cloud nesta sessão. Clique em "Tentar Novamente" ou acesse pela URL oficial compartilhada.');
@@ -312,6 +315,12 @@ export const AddCardPurchaseModal: React.FC<AddCardPurchaseModalProps> = ({
           if (response.status === 504 || response.status === 408) {
             throw new Error('O processamento demorou mais que o esperado pelo servidor. Clique em "Tentar Novamente" para enviar em formato otimizado.');
           }
+        }
+        if (response.status === 404) {
+          if (typeof window !== 'undefined' && window.location.hostname.includes('vercel.app')) {
+            throw new Error('A rota /api/scan-card-invoice retornou 404 na Vercel. Atualize o deploy na Vercel com os novos arquivos (api/scan-card-invoice.ts e vercel.json) e adicione GEMINI_API_KEY no painel da Vercel.');
+          }
+          throw new Error('Servidor da API não encontrado (404).');
         }
         if (response.status === 413) {
           throw new Error('A imagem é muito grande. Recorte apenas a lista de compras e tente novamente.');
@@ -326,7 +335,11 @@ export const AddCardPurchaseModal: React.FC<AddCardPurchaseModalProps> = ({
       }
 
       if (!response.ok || !data.success) {
-        throw new Error(data?.error || 'Falha ao ler os dados do print.');
+        const errorText =
+          typeof data?.error === 'object'
+            ? data.error.message || JSON.stringify(data.error)
+            : data?.error || 'Falha ao ler os dados do print.';
+        throw new Error(errorText);
       }
 
       const purchases = data.purchases || [];
