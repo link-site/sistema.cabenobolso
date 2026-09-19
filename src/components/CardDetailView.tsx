@@ -16,6 +16,7 @@ import {
   TrendingDown,
   ShoppingBag,
   Info,
+  Camera,
 } from 'lucide-react';
 import { CreditCard, CardPurchase } from '../types';
 import {
@@ -192,6 +193,17 @@ export const CardDetailView: React.FC<CardDetailViewProps> = ({
               <span className="hidden sm:inline">Excluir Cartão</span>
             </button>
           )}
+
+          <button
+            id="btn-abrir-importar-print"
+            type="button"
+            onClick={() => setIsAddPurchaseModalOpen(true)}
+            className="flex items-center gap-2 px-3.5 py-3 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-white font-bold text-xs sm:text-sm border border-zinc-700/60 hover:border-[#00ff7f]/50 transition-all shadow"
+            title="Importar compras através de foto ou print do extrato do cartão"
+          >
+            <Camera className="w-4 h-4 text-[#00ff7f]" />
+            <span className="hidden sm:inline">Importar Print</span>
+          </button>
 
           <button
             id="btn-abrir-adicionar-compras"
