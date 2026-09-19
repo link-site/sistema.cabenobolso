@@ -7,12 +7,15 @@ import { GoogleGenAI } from '@google/genai';
 dotenv.config();
 
 let aiClient: GoogleGenAI | null = null;
-function getGeminiClient(): GoogleGenAI {
+function getGeminiClient(customKey?: string): GoogleGenAI {
+  const apiKey = customKey || process.env.GEMINI_API_KEY;
+  if (!apiKey) {
+    throw new Error('GEMINI_API_KEY não configurada no ambiente ou na requisição.');
+  }
+  if (customKey) {
+    return new GoogleGenAI({ apiKey: customKey });
+  }
   if (!aiClient) {
-    const apiKey = process.env.GEMINI_API_KEY;
-    if (!apiKey) {
-      throw new Error('GEMINI_API_KEY não configurada no ambiente.');
-    }
     aiClient = new GoogleGenAI({ apiKey });
   }
   return aiClient;
@@ -21,6 +24,17 @@ function getGeminiClient(): GoogleGenAI {
 async function startServer() {
   const app = express();
   const PORT = 3000;
+
+  // Habilita CORS para permitir requisições de qualquer origem (externa, mobile, webview ou iframe)
+  app.use((req, res, next) => {
+    res.header('Access-Control-Allow-Origin', '*');
+    res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+    if (req.method === 'OPTIONS') {
+      return res.sendStatus(200);
+    }
+    next();
+  });
 
   // Permite payloads de imagem em base64 até 50MB
   app.use(express.json({ limit: '50mb' }));
@@ -31,12 +45,12 @@ async function startServer() {
     res.json({ status: 'ok', timestamp: new Date().toISOString() });
   });
 
-  // Helper para chamar o Gemini com timeout individual de 12 segundos
+  // Helper para chamar o Gemini com timeout individual
   const generateWithTimeout = async (
     ai: GoogleGenAI,
     model: string,
     params: any,
-    timeoutMs = 12000
+    timeoutMs = 20000
   ): Promise<any> => {
     return Promise.race([
       ai.models.generateContent(params),
@@ -48,8 +62,11 @@ async function startServer() {
 
   // Endpoint para analisar imagem de print/fatura do cartão com Gemini
   app.post('/api/scan-card-invoice', async (req, res) => {
+    req.setTimeout(65000);
+    res.setTimeout(65000);
+
     try {
-      const { image, mimeType = 'image/jpeg', defaultYear } = req.body;
+      const { image, mimeType = 'image/jpeg', defaultYear, apiKey } = req.body;
 
       if (!image) {
         return res.status(400).json({
@@ -111,9 +128,9 @@ Responda ESTRITAMENTE em formato JSON com a seguinte estrutura:
   ]
 }`;
 
-      const ai = getGeminiClient();
+      const ai = getGeminiClient(apiKey);
 
-      // Modelos rápidos para tentar sequencialmente sem estourar o timeout da rota
+      // Modelos para tentar sequencialmente
       const modelsToTry = ['gemini-3.8-flash', 'gemini-flash-latest', 'gemini-3.1-flash-lite'];
       let response: any = null;
       let lastCallError: any = null;
@@ -146,7 +163,7 @@ Responda ESTRITAMENTE em formato JSON com a seguinte estrutura:
                 responseMimeType: 'application/json',
               },
             },
-            11000 // 11 segundos max por modelo para resposta rápida
+            18000 // 18 segundos por modelo
           );
 
           if (response && response.text) {

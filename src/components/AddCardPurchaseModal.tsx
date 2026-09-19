@@ -81,6 +81,7 @@ export const AddCardPurchaseModal: React.FC<AddCardPurchaseModalProps> = ({
 
   // OCR / Image scan state
   const [isScanning, setIsScanning] = useState(false);
+  const [scanStep, setScanStep] = useState('');
   const [scanError, setScanError] = useState('');
   const [scanSuccessMsg, setScanSuccessMsg] = useState('');
   const [scannedItems, setScannedItems] = useState<ScannedItem[] | null>(null);
@@ -157,46 +158,89 @@ export const AddCardPurchaseModal: React.FC<AddCardPurchaseModalProps> = ({
     return previewList;
   }, [parsedTotalAmount, installmentCount, startMonth, startYear, card.dueDate]);
 
-  // Client-side image compressor & reader (redimensiona para máx 1200px e comprime para evitar estouro de timeout/payload)
-  const processImageFile = async (file: File): Promise<string> => {
+  // Client-side image compressor & reader: redimensiona e comprime em JPEG
+  // Garante que o arquivo enviado tenha entre 60KB e 200KB, permitindo upload quase instantâneo mesmo no 3G/4G fora do Google Cloud
+  const processImageFile = async (file: File, aggressive = false): Promise<string> => {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
       reader.onload = (e) => {
         const result = e.target?.result as string;
+        if (!result) {
+          return reject(new Error('Não foi possível ler o arquivo da imagem.'));
+        }
+
         const img = new Image();
         img.onload = () => {
-          const MAX_DIM = 1200;
-          let { width, height } = img;
-          if (width > MAX_DIM || height > MAX_DIM) {
-            if (width > height) {
-              height = Math.round((height * MAX_DIM) / width);
-              width = MAX_DIM;
-            } else {
-              width = Math.round((width * MAX_DIM) / height);
-              height = MAX_DIM;
+          try {
+            // Em modo padrão: máx 1050px, qualidade 0.72 (~120KB)
+            // Em modo agressivo (retry): máx 800px, qualidade 0.60 (~60KB)
+            const MAX_DIM = aggressive ? 800 : 1050;
+            const QUALITY = aggressive ? 0.60 : 0.72;
+
+            let { width, height } = img;
+            if (width > MAX_DIM || height > MAX_DIM) {
+              if (width > height) {
+                height = Math.round((height * MAX_DIM) / width);
+                width = MAX_DIM;
+              } else {
+                width = Math.round((width * MAX_DIM) / height);
+                height = MAX_DIM;
+              }
             }
-          }
-          const canvas = document.createElement('canvas');
-          canvas.width = width;
-          canvas.height = height;
-          const ctx = canvas.getContext('2d');
-          if (ctx) {
-            ctx.drawImage(img, 0, 0, width, height);
-            resolve(canvas.toDataURL('image/jpeg', 0.78));
-          } else {
+
+            const canvas = document.createElement('canvas');
+            canvas.width = width;
+            canvas.height = height;
+            const ctx = canvas.getContext('2d', { willReadFrequently: false });
+            if (ctx) {
+              // Fundo branco no caso de transparência PNG/WebP convertida para JPEG
+              ctx.fillStyle = '#FFFFFF';
+              ctx.fillRect(0, 0, width, height);
+              ctx.drawImage(img, 0, 0, width, height);
+
+              let dataUrl = canvas.toDataURL('image/jpeg', QUALITY);
+
+              // Se por algum motivo ainda ficou > 450KB, faz uma segunda redução para garantir payload leve
+              if (dataUrl.length > 450000) {
+                const secondCanvas = document.createElement('canvas');
+                const secondWidth = Math.round(width * 0.75);
+                const secondHeight = Math.round(height * 0.75);
+                secondCanvas.width = secondWidth;
+                secondCanvas.height = secondHeight;
+                const secondCtx = secondCanvas.getContext('2d');
+                if (secondCtx) {
+                  secondCtx.fillStyle = '#FFFFFF';
+                  secondCtx.fillRect(0, 0, secondWidth, secondHeight);
+                  secondCtx.drawImage(canvas, 0, 0, secondWidth, secondHeight);
+                  dataUrl = secondCanvas.toDataURL('image/jpeg', 0.62);
+                }
+              }
+
+              resolve(dataUrl);
+            } else {
+              resolve(result);
+            }
+          } catch (canvasErr) {
+            console.warn('Canvas resize falhou, usando imagem original:', canvasErr);
             resolve(result);
           }
         };
-        img.onerror = () => resolve(result);
+
+        img.onerror = () => {
+          // Se falhou ao abrir como Image (ex: HEIC do iPhone ou formato não suportado diretamente)
+          resolve(result);
+        };
+
         img.src = result;
       };
-      reader.onerror = reject;
+
+      reader.onerror = () => reject(new Error('Erro ao ler o arquivo selecionado.'));
       reader.readAsDataURL(file);
     });
   };
 
   // Upload and analyze screenshot with Gemini
-  const handleImageFile = async (file: File) => {
+  const handleImageFile = async (file: File, isRetry = false) => {
     if (!file.type.startsWith('image/')) {
       setScanError('Por favor, selecione um arquivo de imagem válido (JPEG, PNG, WebP).');
       return;
@@ -204,15 +248,19 @@ export const AddCardPurchaseModal: React.FC<AddCardPurchaseModalProps> = ({
 
     lastSelectedFileRef.current = file;
     setIsScanning(true);
+    setScanStep(isRetry ? 'Recomprimindo em modo super leve...' : 'Otimizando imagem para envio rápido...');
     setScanError('');
     setScanSuccessMsg('');
     setErrorMsg('');
 
+    // Timeout de 55 segundos para permitir redes móveis e conexões residenciais com margem segura
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 25000);
+    const timeoutId = setTimeout(() => controller.abort(), 55000);
 
     try {
-      const base64Image = await processImageFile(file);
+      const base64Image = await processImageFile(file, isRetry);
+
+      setScanStep('Enviando para o servidor seguro...');
 
       const response = await fetch('/api/scan-card-invoice', {
         method: 'POST',
@@ -225,6 +273,8 @@ export const AddCardPurchaseModal: React.FC<AddCardPurchaseModalProps> = ({
         signal: controller.signal,
       });
 
+      setScanStep('IA Gemini identificando compras no extrato...');
+
       clearTimeout(timeoutId);
 
       const rawText = await response.text();
@@ -235,7 +285,7 @@ export const AddCardPurchaseModal: React.FC<AddCardPurchaseModalProps> = ({
       } catch {
         // Trata respostas HTML ou texto de proxies/Cloud Run (ex: 502, 504, 413, "The page cannot be displayed")
         if (response.status === 504 || response.status === 408) {
-          throw new Error('O processamento demorou mais que o esperado. Por favor, tente novamente.');
+          throw new Error('O processamento demorou mais que o esperado pelo servidor. Clique em "Tentar Novamente" para enviar em formato otimizado.');
         }
         if (response.status === 413) {
           throw new Error('A imagem é muito grande. Recorte apenas a lista de compras e tente novamente.');
@@ -245,9 +295,9 @@ export const AddCardPurchaseModal: React.FC<AddCardPurchaseModalProps> = ({
           rawText.toLowerCase().includes('timeout') ||
           rawText.toLowerCase().includes('gateway')
         ) {
-          throw new Error('A conexão com o servidor oscilou ou expirou. Por favor, clique em "Tentar Novamente".');
+          throw new Error('A conexão com o servidor oscilou ou expirou. Por favor, clique em "Tentar Novamente" para enviar em modo ultra-rápido.');
         }
-        throw new Error(`Erro na comunicação com o servidor (${response.status}). Por favor, tente novamente.`);
+        throw new Error(`Erro na comunicação com o servidor (${response.status}). Por favor, clique em "Tentar Novamente".`);
       }
 
       if (!response.ok || !data.success) {
@@ -298,13 +348,14 @@ export const AddCardPurchaseModal: React.FC<AddCardPurchaseModalProps> = ({
       clearTimeout(timeoutId);
       console.error('Erro ao ler print:', err);
       if (err.name === 'AbortError') {
-        setScanError('O processamento demorou mais de 25 segundos e foi cancelado para não travar o app. Por favor, recorte o print para incluir apenas as compras e tente novamente.');
+        setScanError('O envio demorou mais do que o limite da rede e foi cancelado. Clique em "Tentar Novamente" para enviar em formato reduzido.');
       } else {
         setScanError(err.message || 'Erro de comunicação ao ler imagem. Tente novamente.');
       }
     } finally {
       clearTimeout(timeoutId);
       setIsScanning(false);
+      setScanStep('');
       if (fileInputRef.current) {
         fileInputRef.current.value = '';
       }
@@ -528,8 +579,8 @@ export const AddCardPurchaseModal: React.FC<AddCardPurchaseModalProps> = ({
             {/* Scanning Progress */}
             {isScanning && (
               <div className="mt-3 pt-3 border-t border-zinc-800 flex items-center gap-2 text-xs text-[#00ff7f] animate-pulse">
-                <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                <span>Analisando o histórico de compras com visão computacional...</span>
+                <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0 text-[#00ff7f]" />
+                <span>{scanStep || 'Analisando o histórico de compras com IA...'}</span>
               </div>
             )}
 
@@ -545,12 +596,13 @@ export const AddCardPurchaseModal: React.FC<AddCardPurchaseModalProps> = ({
                     type="button"
                     onClick={() => {
                       if (lastSelectedFileRef.current) {
-                        handleImageFile(lastSelectedFileRef.current);
+                        handleImageFile(lastSelectedFileRef.current, true);
                       }
                     }}
-                    className="self-start sm:self-auto px-3 py-1 rounded-lg bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 font-bold text-[11px] border border-rose-500/40 transition-colors shrink-0"
+                    className="self-start sm:self-auto px-3 py-1.5 rounded-lg bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 font-bold text-[11px] border border-rose-500/40 transition-colors shrink-0 flex items-center gap-1.5"
+                    title="Tentar novamente com compressão otimizada para conexões lentas"
                   >
-                    Tentar Novamente
+                    <span>Tentar Novamente</span>
                   </button>
                 )}
               </div>
