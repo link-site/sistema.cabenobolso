@@ -42,6 +42,8 @@ interface CreditCardsViewProps {
     name: string;
     totalAmount: number;
     installmentCount: number;
+    currentInstallment?: number;
+    installmentAmount?: number;
     purchaseDate: string;
     startBillingDate: string;
     category?: string;

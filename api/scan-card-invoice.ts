@@ -104,22 +104,24 @@ Analise a imagem anexada que contém uma captura de tela (print) ou foto do hist
 INSTRUÇÕES DE EXTRAÇÃO:
 1. Identifique TODAS as compras/transações que aparecem na imagem.
 2. Para cada transação/compra, extraia os seguintes campos:
-   - "name": Nome do estabelecimento/loja ou descrição da compra (ex: "PG *99 RIDE, SAO PAULO", "DL*UberRides, Sao Paulo", "ESCOLA PEQUENO MESTRE", "MERCADO LIVRE", etc.).
+   - "name": Nome do estabelecimento/loja ou descrição comercial da compra (ex: "STB*ORIGINPRESENTESLTD", "PG *99 RIDE, SAO PAULO", "DL*UberRides", "MERCADO LIVRE", etc.).
      ATENÇÃO: Remova metadados do cartão como "cartão virtual XXXX", "cartão titular XXXX", nome do portador como "Marcio M.", número de documento, etc. Mantenha apenas o nome comercial limpo e legível.
-   - "amount": Valor numérico da compra (ex: 7.70, 7.30, 220.00). Use número decimal com ponto para centavos.
-     Se for compra parcelada (ex: "Parcela 8/8" com R$ 220,00), extraia o valor numérico que aparece para a parcela.
+   - "amount": Valor numérico que aparece ao lado da transação (ex: 56.33, 7.70, 220.00). Use número decimal com ponto para centavos.
+     IMPORTANTE: Em faturas e extratos de cartão de crédito brasileiros, o valor em reais exibido na linha da transação com parcelamento (ex: "Parcela 3/3 R$ 56,33" ou "Parcela 1/3 R$ 56,33") é SEMPRE o VALOR DA PARCELA daquele mês (neste exemplo, 56.33). Extraia exatamente esse valor da parcela como "amount".
    - "date": Data da transação no formato ISO "YYYY-MM-DD" (ex: "2026-09-13").
-     - Observe os cabeçalhos de data na imagem (ex: "Domingo, 13 de setembro", "Quarta-feira, 21 de janeiro").
+     - Observe os cabeçalhos de data na imagem (ex: "Domingo, 13 de setembro", "Quarta-feira, 21 de janeiro", "19/09").
      - Converta o mês por extenso em número (janeiro = 01, fevereiro = 02, março = 03, abril = 04, maio = 05, junho = 06, julho = 07, agosto = 08, setembro = 09, outubro = 10, novembro = 11, dezembro = 12).
      - Se o ano não estiver explícito no print, use o ano de contexto: ${contextYear}.
    - "installmentCount": Quantidade TOTAL de parcelas da compra (número inteiro).
      - Se for compra à vista (sem indicação de parcelas), coloque 1.
-     - Se estiver indicado parcelamento como "Parcela 8/8", "08/08", "8x", "1/3", extraia o total de parcelas (ex: 8 no caso de 8/8).
+     - Se estiver indicado parcelamento como "Parcela 3/3", "Parcela 1/3", "08/08", "8x", o total de parcelas é o número total (ex: 3 no caso de 3/3 ou 1/3; 8 no caso de 8/8).
    - "currentInstallment": O número da parcela atual que aparece no print (número inteiro).
      - Se for à vista, coloque 1.
-     - Se "Parcela 8/8", coloque 8. Se "Parcela 2/5", coloque 2.
+     - Se "Parcela 3/3", a parcela atual é 3.
+     - Se "Parcela 1/3", a parcela atual é 1.
+     - Se "Parcela 2/5", a parcela atual é 2.
    - "category": Sugira a categoria mais adequada entre: "Transporte", "Alimentação", "Supermercado", "Educação", "Saúde", "Lazer", "Serviços", "Compras", "Casa", "Outros".
-   - "notes": Breve nota se houver informação útil (ex: "Cartão final 9488"), ou deixe vazio "".
+   - "notes": Breve nota se houver informação útil (ex: "Cartão final 8905"), ou deixe vazio "".
 
 Responda ESTRITAMENTE em formato JSON com a seguinte estrutura:
 {

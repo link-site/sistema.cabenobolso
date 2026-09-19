@@ -749,6 +749,8 @@ export function useFirestoreFinance() {
     name: string;
     totalAmount: number;
     installmentCount: number;
+    currentInstallment?: number;
+    installmentAmount?: number;
     purchaseDate: string; // YYYY-MM-DD
     startBillingDate: string; // YYYY-MM-DD
     category?: string;
@@ -759,6 +761,8 @@ export function useFirestoreFinance() {
       name,
       totalAmount,
       installmentCount,
+      currentInstallment = 1,
+      installmentAmount: customInstallmentAmount,
       purchaseDate,
       startBillingDate,
       category,
@@ -766,11 +770,24 @@ export function useFirestoreFinance() {
     } = params;
 
     const count = Math.max(1, Math.min(60, installmentCount || 1));
-    const rawInstallment = Math.floor((totalAmount / count) * 100) / 100;
-    const remainder = Math.round((totalAmount - rawInstallment * count) * 100) / 100;
+    const startInst = Math.max(1, Math.min(count, currentInstallment || 1));
+
+    // Determina valor da parcela e valor total
+    let instAmount: number;
+    let computedTotal: number;
+
+    if (customInstallmentAmount && customInstallmentAmount > 0) {
+      instAmount = customInstallmentAmount;
+      computedTotal = Number((customInstallmentAmount * count).toFixed(2));
+    } else {
+      instAmount = Math.floor((totalAmount / count) * 100) / 100;
+      computedTotal = totalAmount;
+    }
+
+    const remainder = Math.round((computedTotal - instAmount * count) * 100) / 100;
     const purchaseGroupId = `grp-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
 
-    // Parse start date (e.g. 2026-09-12 or 2026-09-01)
+    // Parse start date (mês da fatura atual sendo importada ou iniciada)
     const [startYearStr, startMonthStr, startDayStr] = startBillingDate.split('-');
     const startYear = parseInt(startYearStr, 10);
     const startMonth = parseInt(startMonthStr, 10) - 1;
@@ -778,22 +795,33 @@ export function useFirestoreFinance() {
 
     const newPurchasesData: Omit<CardPurchase, 'id'>[] = [];
 
-    for (let i = 0; i < count; i++) {
-      const targetMonthTotal = startMonth + i;
+    // IMPORTANTE:
+    // Começamos a gerar faturas a partir de 'startInst' até 'count'!
+    // Se a compra está na Parcela 3/3 (última parcela):
+    //   startInst = 3, count = 3 -> gera APENAS a parcela 3 de 3 no mês atual (Outubro).
+    //   Nenhuma parcela futura (Novembro, Dezembro) é criada, e não gera faturas passadas!
+    // Se a compra é nova (Parcela 1/3):
+    //   startInst = 1, count = 3 -> gera parcela 1 (Outubro), parcela 2 (Novembro) e parcela 3 (Dezembro).
+    // Se a compra está na Parcela 2/4:
+    //   startInst = 2, count = 4 -> gera parcela 2 (Outubro), parcela 3 (Novembro) e parcela 4 (Dezembro).
+    for (let c = startInst; c <= count; c++) {
+      const monthOffset = c - startInst;
+      const targetMonthTotal = startMonth + monthOffset;
       const targetYear = startYear + Math.floor(targetMonthTotal / 12);
       const targetMonth = targetMonthTotal % 12;
       const targetBillingDate = buildClampedDate(targetYear, targetMonth, startDay);
-      // Give the remainder cents to the first installment
-      const installmentAmount =
-        i === 0 ? Number((rawInstallment + remainder).toFixed(2)) : rawInstallment;
+
+      // Centavos de ajuste de arredondamento na parcela 1 se ela fizer parte da geração
+      const thisInstallmentAmount =
+        c === 1 ? Number((instAmount + remainder).toFixed(2)) : instAmount;
 
       newPurchasesData.push({
         cardId,
         name: name.trim(),
-        totalAmount,
-        installmentAmount,
+        totalAmount: computedTotal,
+        installmentAmount: thisInstallmentAmount,
         installmentCount: count,
-        currentInstallment: i + 1,
+        currentInstallment: c,
         purchaseDate,
         billingDate: targetBillingDate,
         purchaseGroupId,
