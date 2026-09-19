@@ -25,7 +25,9 @@ googleProvider.setCustomParameters({
 // Initialize Firestore with specific Database ID
 export const db = initializeFirestore(
   app,
-  {},
+  {
+    experimentalForceLongPolling: true,
+  },
   firebaseConfig.firestoreDatabaseId || '(default)'
 );
 
