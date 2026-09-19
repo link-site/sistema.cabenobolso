@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   ChevronLeft,
   ChevronRight,
@@ -34,6 +34,11 @@ import {
   MONTH_NAMES,
   parseDateMonthYear,
 } from '../utils/formatters';
+import {
+  isCardTransaction,
+  findCardTransactionForMonth,
+  getCardInvoiceForMonthYear,
+} from '../utils/creditCardSync';
 import { AddTransactionModal } from './AddTransactionModal';
 import { AddTagModal } from './AddTagModal';
 import { ShowCreditCardsModal } from './ShowCreditCardsModal';
@@ -160,6 +165,39 @@ export const BudgetView: React.FC<BudgetViewProps> = ({
   // "Ter os campos; Salario, Gastos e Disponível/ Ultrapassou(Quando o nome 'Disponível' ficará visível, quando o valor estiver menor que o valor do campo salario, já para o nome 'ultrapassou' ficará quando o valor for maior que o valor do campo salario."
   const isOverBudget = totalGastos > totalSalario;
   const budgetDifference = Math.abs(totalSalario - totalGastos);
+
+  // Sincronização automática com a tela de movimentações do mês:
+  // Sempre que o valor do cartão for atualizado pelo menu Cartão (ou compras/parcelas adicionadas/editadas),
+  // se o cartão estiver incluído nas movimentações deste mês, o valor é atualizado automaticamente.
+  useEffect(() => {
+    if (!onUpdateTransaction || cards.length === 0) return;
+
+    cards.forEach((card) => {
+      const existingTx = findCardTransactionForMonth(
+        transactions,
+        card,
+        selectedYear,
+        selectedMonth
+      );
+      if (existingTx) {
+        const expectedInvoice = getCardInvoiceForMonthYear(
+          card,
+          cardPurchases,
+          selectedYear,
+          selectedMonth
+        );
+        const needsAmountUpdate = Math.abs(existingTx.amount - expectedInvoice) > 0.001;
+        const needsCardId = existingTx.cardId !== card.id;
+
+        if (needsAmountUpdate || needsCardId) {
+          onUpdateTransaction(existingTx.id, {
+            amount: expectedInvoice > 0 ? expectedInvoice : 0,
+            cardId: card.id,
+          });
+        }
+      }
+    });
+  }, [cards, cardPurchases, selectedYear, selectedMonth, transactions, onUpdateTransaction]);
 
   // Sorting function helper
   const sortItems = (items: Transaction[]) => {
@@ -690,7 +728,18 @@ export const BudgetView: React.FC<BudgetViewProps> = ({
 
                   {/* Nome */}
                   <td className="py-3 px-4 font-semibold text-white">
-                    {item.name}
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span>{item.name}</span>
+                      {cards.some((c) => isCardTransaction(item, c)) && (
+                        <span
+                          className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md bg-[#00ff7f]/10 text-[#00ff7f] border border-[#00ff7f]/30"
+                          title="Sincronizado automaticamente com o menu Cartões de Crédito"
+                        >
+                          <CreditCardIcon className="w-3 h-3 text-[#00ff7f]" />
+                          <span>Fatura Vinculada</span>
+                        </span>
+                      )}
+                    </div>
                   </td>
 
                   {/* Valor (em Vermelho) */}
@@ -791,15 +840,33 @@ export const BudgetView: React.FC<BudgetViewProps> = ({
         onOpenAddNewCard={onOpenAddCardModal}
         onTogglePaid={onToggleCardPaid}
         onIncludeCardInBudget={(card, amount, dueDateStr) => {
-          onAddTransaction({
-            type: 'gasto',
-            name: `Fatura ${card.name}`,
-            amount: amount > 0 ? amount : 0,
-            tag: 'Cartão de crédito',
-            date: dueDateStr,
-            status: card.paidThisMonth ? 'Pago' : 'Não pago',
-            notes: `Fatura importada do cartão ${card.name} para ${MONTH_NAMES[selectedMonth]} de ${selectedYear}`,
-          });
+          const existing = findCardTransactionForMonth(
+            transactions,
+            card,
+            selectedYear,
+            selectedMonth
+          );
+          if (existing && onUpdateTransaction) {
+            onUpdateTransaction(existing.id, {
+              name: `Fatura ${card.name}`,
+              amount: amount > 0 ? amount : 0,
+              date: dueDateStr,
+              tag: 'Cartão de crédito',
+              cardId: card.id,
+              status: card.paidThisMonth ? 'Pago' : 'Não pago',
+            });
+          } else {
+            onAddTransaction({
+              type: 'gasto',
+              name: `Fatura ${card.name}`,
+              amount: amount > 0 ? amount : 0,
+              tag: 'Cartão de crédito',
+              date: dueDateStr,
+              cardId: card.id,
+              status: card.paidThisMonth ? 'Pago' : 'Não pago',
+              notes: `Fatura importada do cartão ${card.name} para ${MONTH_NAMES[selectedMonth]} de ${selectedYear}`,
+            });
+          }
         }}
       />
     </div>

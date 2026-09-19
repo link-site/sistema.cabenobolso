@@ -14,6 +14,7 @@ import {
   Layers,
   Edit2,
   Check,
+  RefreshCw,
 } from 'lucide-react';
 import { CreditCard, CardPurchase, Transaction } from '../types';
 import {
@@ -23,6 +24,10 @@ import {
   MONTH_NAMES,
   buildClampedDate,
 } from '../utils/formatters';
+import {
+  findCardTransactionForMonth,
+  getCardInvoiceForMonthYear,
+} from '../utils/creditCardSync';
 
 interface ShowCreditCardsModalProps {
   isOpen: boolean;
@@ -62,30 +67,12 @@ export const ShowCreditCardsModal: React.FC<ShowCreditCardsModalProps> = ({
 
   // Calculates invoice for the selected month/year
   const getCardInvoiceForMonth = (card: CreditCard): number => {
-    const list = cardPurchases.filter((p) => p.cardId === card.id);
-    if (list.length > 0) {
-      const curMonthList = list.filter((p) => {
-        const { year, month } = parseDateMonthYear(p.billingDate);
-        return year === selectedYear && month === selectedMonth;
-      });
-      return curMonthList.reduce((sum, item) => sum + item.installmentAmount, 0);
-    }
-    return card.currentInvoice || 0;
+    return getCardInvoiceForMonthYear(card, cardPurchases, selectedYear, selectedMonth);
   };
 
   // Find if card invoice is already in the monthly transactions list
   const findExistingTransaction = (card: CreditCard): Transaction | undefined => {
-    return transactions.find((tx) => {
-      if (tx.type !== 'gasto') return false;
-      const { year, month } = parseDateMonthYear(tx.date);
-      if (year !== selectedYear || month !== selectedMonth) return false;
-      const txNameLower = tx.name.toLowerCase();
-      const cardNameLower = card.name.toLowerCase();
-      return (
-        txNameLower.includes(cardNameLower) ||
-        (tx.tag === 'Cartão de crédito' && txNameLower.includes(cardNameLower))
-      );
-    });
+    return findCardTransactionForMonth(transactions, card, selectedYear, selectedMonth);
   };
 
   // Get current effective amount to include (custom or calculated)
@@ -104,37 +91,39 @@ export const ShowCreditCardsModal: React.FC<ShowCreditCardsModalProps> = ({
     const dueDay = parseInt(card.dueDate, 10) || 10;
     const dueDateStr = buildClampedDate(selectedYear, selectedMonth, dueDay);
 
+    const existing = findExistingTransaction(card);
     onIncludeCardInBudget(card, amount, dueDateStr);
 
-    setSuccessMsg(
-      `✓ Fatura do cartão "${card.name}" (${formatCurrency(amount)}) incluída com sucesso na Lista de Movimentações de ${MONTH_NAMES[selectedMonth]} de ${selectedYear}!`
-    );
+    if (existing) {
+      setSuccessMsg(
+        `✓ Fatura do cartão "${card.name}" atualizada com sucesso para ${formatCurrency(amount)} na Lista de Movimentações de ${MONTH_NAMES[selectedMonth]} de ${selectedYear}!`
+      );
+    } else {
+      setSuccessMsg(
+        `✓ Fatura do cartão "${card.name}" (${formatCurrency(amount)}) incluída com sucesso na Lista de Movimentações de ${MONTH_NAMES[selectedMonth]} de ${selectedYear}!`
+      );
+    }
 
     setTimeout(() => {
       setSuccessMsg('');
     }, 4500);
   };
 
-  // Include all cards that are not yet launched
+  // Include all cards that are not yet launched or update them
   const handleIncludeAllCards = () => {
     let count = 0;
     cards.forEach((card) => {
-      const existing = findExistingTransaction(card);
-      if (!existing) {
-        const amount = getEffectiveAmount(card);
-        const dueDay = parseInt(card.dueDate, 10) || 10;
-        const dueDateStr = buildClampedDate(selectedYear, selectedMonth, dueDay);
-        onIncludeCardInBudget(card, amount, dueDateStr);
-        count++;
-      }
+      const amount = getEffectiveAmount(card);
+      const dueDay = parseInt(card.dueDate, 10) || 10;
+      const dueDateStr = buildClampedDate(selectedYear, selectedMonth, dueDay);
+      onIncludeCardInBudget(card, amount, dueDateStr);
+      count++;
     });
 
     if (count > 0) {
       setSuccessMsg(
-        `✓ ${count} fatura(s) de cartão incluída(s) com sucesso na Lista de Movimentações de ${MONTH_NAMES[selectedMonth]} de ${selectedYear}!`
+        `✓ ${count} fatura(s) de cartão sincronizada(s) com sucesso na Lista de Movimentações de ${MONTH_NAMES[selectedMonth]} de ${selectedYear}!`
       );
-    } else {
-      setSuccessMsg('Todos os cartões já estão lançados na lista deste mês!');
     }
 
     setTimeout(() => {
@@ -388,22 +377,46 @@ export const ShowCreditCardsModal: React.FC<ShowCreditCardsModalProps> = ({
                     </button>
 
                     {/* BOTÃO PRINCIPAL: Incluir na lista de movimentações do mês */}
-                    <div className="flex items-center gap-2 self-end sm:self-auto">
+                    <div className="flex items-center gap-2 self-end sm:self-auto flex-wrap">
                       {existingTx ? (
-                        <div className="flex items-center gap-2">
-                          <span className="text-[11px] font-semibold text-[#00ff7f] flex items-center gap-1 bg-[#00ff7f]/10 border border-[#00ff7f]/30 px-2.5 py-1.5 rounded-xl">
-                            <CheckCircle2 className="w-3.5 h-3.5" />
-                            <span>Lançado ({formatCurrency(existingTx.amount)})</span>
-                          </span>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          {Math.abs(existingTx.amount - effectiveAmount) > 0.001 ? (
+                            <>
+                              <span
+                                className="text-[11px] font-semibold text-amber-400 flex items-center gap-1 bg-amber-500/10 border border-amber-500/30 px-2.5 py-1.5 rounded-xl"
+                                title={`Lançado no orçamento como ${formatCurrency(existingTx.amount)}, mas a fatura atual é ${formatCurrency(effectiveAmount)}`}
+                              >
+                                <AlertCircle className="w-3.5 h-3.5 text-amber-400" />
+                                <span>No Orçamento: {formatCurrency(existingTx.amount)}</span>
+                              </span>
 
-                          <button
-                            type="button"
-                            onClick={() => handleIncludeCard(card)}
-                            className="text-xs font-bold px-3 py-1.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white border border-zinc-700 transition-colors"
-                            title="Lançar novamente na lista de movimentações"
-                          >
-                            + Lançar Novamente
-                          </button>
+                              <button
+                                type="button"
+                                onClick={() => handleIncludeCard(card)}
+                                className="flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-black shadow-md transition-all font-sans"
+                                title="Atualizar valor da fatura nas movimentações do mês"
+                              >
+                                <RefreshCw className="w-3.5 h-3.5 animate-spin-once" />
+                                <span>Atualizar para {formatCurrency(effectiveAmount)}</span>
+                              </button>
+                            </>
+                          ) : (
+                            <>
+                              <span className="text-[11px] font-semibold text-[#00ff7f] flex items-center gap-1 bg-[#00ff7f]/10 border border-[#00ff7f]/30 px-2.5 py-1.5 rounded-xl">
+                                <CheckCircle2 className="w-3.5 h-3.5" />
+                                <span>Lançado e Atualizado ({formatCurrency(existingTx.amount)})</span>
+                              </span>
+
+                              <button
+                                type="button"
+                                onClick={() => handleIncludeCard(card)}
+                                className="text-xs font-bold px-3 py-1.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white border border-zinc-700 transition-colors"
+                                title="Re-sincronizar fatura na lista de movimentações"
+                              >
+                                Sincronizar
+                              </button>
+                            </>
+                          )}
                         </div>
                       ) : (
                         <button

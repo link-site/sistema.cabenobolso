@@ -15,7 +15,8 @@ import { db } from '../lib/firebase';
 import { useAuth } from '../context/AuthContext';
 import { Transaction, TagItem, CreditCard, CardPurchase } from '../types';
 import { DEFAULT_TAGS, INITIAL_TRANSACTIONS, INITIAL_CARDS, INITIAL_CARD_PURCHASES } from './initialData';
-import { buildClampedDate } from '../utils/formatters';
+import { buildClampedDate, parseDateMonthYear } from '../utils/formatters';
+import { isCardTransaction, getCardInvoiceForMonthYear } from '../utils/creditCardSync';
 
 const LOCAL_STORAGE_KEYS = {
   TRANSACTIONS: 'cabe_no_bolso_transactions_v1',
@@ -168,6 +169,7 @@ export function useFirestoreFinance() {
             date: data.date || new Date().toISOString().split('T')[0],
             status: data.status || (data.type === 'salario' ? 'Recebido' : 'Pago'),
             notes: data.notes,
+            cardId: data.cardId || undefined,
           };
         });
         setTransactions(loaded);
@@ -300,6 +302,8 @@ export function useFirestoreFinance() {
         tag: transaction.tag,
         date: transaction.date,
         status: transaction.status,
+        notes: transaction.notes || '',
+        cardId: transaction.cardId || null,
         createdAt: new Date().toISOString(),
       });
     } catch (err) {
@@ -333,6 +337,8 @@ export function useFirestoreFinance() {
           tag: tx.tag,
           date: tx.date,
           status: tx.status,
+          notes: tx.notes || '',
+          cardId: tx.cardId || null,
           createdAt: new Date().toISOString(),
         });
       });
@@ -603,13 +609,96 @@ export function useFirestoreFinance() {
     }
   };
 
-  const updateCard = async (id: string, updated: Partial<CreditCard>) => {
-    if (!user) {
-      setCards((prev) =>
-        prev.map((card) => (card.id === id ? { ...card, ...updated } : card))
-      );
-      return;
+  const syncCardInvoicesWithTransactions = async (
+    targetCardId: string,
+    providedCards?: CreditCard[],
+    providedPurchases?: CardPurchase[],
+    customCardUpdates?: Partial<CreditCard>
+  ) => {
+    const currentCards = providedCards || cards;
+    const currentPurchases = providedPurchases || cardPurchases;
+    const rawTarget = currentCards.find((c) => c.id === targetCardId);
+    if (!rawTarget) return;
+
+    const targetCard: CreditCard = customCardUpdates
+      ? { ...rawTarget, ...customCardUpdates }
+      : rawTarget;
+
+    // Localiza todas as movimentações associadas a este cartão (pelo cardId ou pela tag/nome)
+    const matchingTxs = transactions.filter((tx) => isCardTransaction(tx, targetCard));
+    if (matchingTxs.length === 0) return;
+
+    const updatesToApply: { id: string; amount: number; cardId: string; name?: string }[] = [];
+
+    matchingTxs.forEach((tx) => {
+      const { year, month } = parseDateMonthYear(tx.date);
+      const expectedAmount = getCardInvoiceForMonthYear(targetCard, currentPurchases, year, month);
+      const needsAmountUpdate = Math.abs(tx.amount - expectedAmount) > 0.001;
+      const needsCardId = tx.cardId !== targetCard.id;
+      const needsNameUpdate =
+        Boolean(customCardUpdates?.name) &&
+        tx.name.toLowerCase().startsWith('fatura ') &&
+        tx.name !== `Fatura ${targetCard.name}`;
+
+      if (needsAmountUpdate || needsCardId || needsNameUpdate) {
+        updatesToApply.push({
+          id: tx.id,
+          amount: expectedAmount > 0 ? expectedAmount : 0,
+          cardId: targetCard.id,
+          ...(needsNameUpdate ? { name: `Fatura ${targetCard.name}` } : {}),
+        });
+      }
+    });
+
+    if (updatesToApply.length === 0) return;
+
+    // Atualização otimista no estado local
+    setTransactions((prev) =>
+      prev.map((item) => {
+        const up = updatesToApply.find((u) => u.id === item.id);
+        if (up) {
+          return {
+            ...item,
+            amount: up.amount,
+            cardId: up.cardId,
+            ...(up.name ? { name: up.name } : {}),
+          };
+        }
+        return item;
+      })
+    );
+
+    // Persiste no Firestore se o usuário estiver autenticado
+    if (user) {
+      try {
+        const batch = writeBatch(db);
+        updatesToApply.forEach((up) => {
+          const docRef = doc(db, 'users', user.uid, 'transactions', up.id);
+          const updateData: any = {
+            amount: up.amount,
+            cardId: up.cardId,
+          };
+          if (up.name) {
+            updateData.name = up.name;
+          }
+          batch.update(docRef, updateData);
+        });
+        await batch.commit();
+      } catch (err) {
+        console.error('Erro ao sincronizar faturas do cartão nas movimentações do mês:', err);
+      }
     }
+  };
+
+  const updateCard = async (id: string, updated: Partial<CreditCard>) => {
+    setCards((prev) =>
+      prev.map((card) => (card.id === id ? { ...card, ...updated } : card))
+    );
+
+    // Sincroniza imediatamente o novo valor com as movimentações do mês
+    await syncCardInvoicesWithTransactions(id, undefined, undefined, updated);
+
+    if (!user) return;
 
     setIsSyncing(true);
     try {
@@ -634,8 +723,8 @@ export function useFirestoreFinance() {
       const docRef = doc(db, 'users', user.uid, 'cards', id);
       await deleteDoc(docRef);
 
-      // Cascade delete cardPurchases for this card
-      const purchasesColRef = collection(db, 'users', user.uid, 'cardPurchases');
+      // Cascade delete card_purchases for this card
+      const purchasesColRef = collection(db, 'users', user.uid, 'card_purchases');
       const q = query(purchasesColRef, where('cardId', '==', id));
       const qSnap = await getDocs(q);
       const batchDeletes = qSnap.docs.map((d) => deleteDoc(d.ref));
@@ -713,14 +802,17 @@ export function useFirestoreFinance() {
       });
     }
 
-    if (!user) {
-      const createdList: CardPurchase[] = newPurchasesData.map((item, idx) => ({
-        ...item,
-        id: `cp-${Date.now()}-${idx}-${Math.random().toString(36).substring(2, 6)}`,
-      }));
-      setCardPurchases((prev) => [...prev, ...createdList]);
-      return;
-    }
+    const createdPurchases: CardPurchase[] = newPurchasesData.map((item, idx) => ({
+      ...item,
+      id: `cp-${Date.now()}-${idx}-${Math.random().toString(36).substring(2, 6)}`,
+    }));
+    const allPurchases = [...cardPurchases, ...createdPurchases];
+    setCardPurchases(allPurchases);
+
+    // Sincroniza faturas incluídas no orçamento com o novo total
+    await syncCardInvoicesWithTransactions(cardId, cards, allPurchases);
+
+    if (!user) return;
 
     setIsSyncing(true);
     try {
@@ -744,10 +836,15 @@ export function useFirestoreFinance() {
   };
 
   const deleteCardPurchase = async (id: string) => {
-    if (!user) {
-      setCardPurchases((prev) => prev.filter((p) => p.id !== id));
-      return;
+    const targetPurchase = cardPurchases.find((p) => p.id === id);
+    const remaining = cardPurchases.filter((p) => p.id !== id);
+    setCardPurchases(remaining);
+
+    if (targetPurchase) {
+      await syncCardInvoicesWithTransactions(targetPurchase.cardId, cards, remaining);
     }
+
+    if (!user) return;
 
     setIsSyncing(true);
     try {
@@ -761,10 +858,15 @@ export function useFirestoreFinance() {
   };
 
   const deleteCardPurchaseGroup = async (purchaseGroupId: string) => {
-    if (!user) {
-      setCardPurchases((prev) => prev.filter((p) => p.purchaseGroupId !== purchaseGroupId));
-      return;
+    const groupPurchase = cardPurchases.find((p) => p.purchaseGroupId === purchaseGroupId);
+    const remaining = cardPurchases.filter((p) => p.purchaseGroupId !== purchaseGroupId);
+    setCardPurchases(remaining);
+
+    if (groupPurchase) {
+      await syncCardInvoicesWithTransactions(groupPurchase.cardId, cards, remaining);
     }
+
+    if (!user) return;
 
     setIsSyncing(true);
     try {
@@ -788,12 +890,16 @@ export function useFirestoreFinance() {
   };
 
   const updateCardPurchase = async (id: string, updated: Partial<CardPurchase>) => {
-    if (!user) {
-      setCardPurchases((prev) =>
-        prev.map((p) => (p.id === id ? { ...p, ...updated } : p))
-      );
-      return;
+    const targetPurchase = cardPurchases.find((p) => p.id === id);
+    const updatedList = cardPurchases.map((p) => (p.id === id ? { ...p, ...updated } : p));
+    setCardPurchases(updatedList);
+
+    const targetCardId = updated.cardId || targetPurchase?.cardId;
+    if (targetCardId) {
+      await syncCardInvoicesWithTransactions(targetCardId, cards, updatedList);
     }
+
+    if (!user) return;
 
     setIsSyncing(true);
     try {
@@ -816,27 +922,30 @@ export function useFirestoreFinance() {
       purchaseDate?: string;
     }
   ) => {
-    if (!user) {
-      setCardPurchases((prev) =>
-        prev.map((p) => {
-          if (p.purchaseGroupId !== purchaseGroupId) return p;
-          return {
-            ...p,
-            name: updates.name !== undefined ? updates.name : p.name,
-            category: updates.category !== undefined ? updates.category : p.category,
-            installmentAmount:
-              updates.installmentAmount !== undefined
-                ? updates.installmentAmount
-                : p.installmentAmount,
-            totalAmount:
-              updates.totalAmount !== undefined ? updates.totalAmount : p.totalAmount,
-            purchaseDate:
-              updates.purchaseDate !== undefined ? updates.purchaseDate : p.purchaseDate,
-          };
-        })
-      );
-      return;
+    const groupPurchase = cardPurchases.find((p) => p.purchaseGroupId === purchaseGroupId);
+    const updatedList = cardPurchases.map((p) => {
+      if (p.purchaseGroupId !== purchaseGroupId) return p;
+      return {
+        ...p,
+        name: updates.name !== undefined ? updates.name : p.name,
+        category: updates.category !== undefined ? updates.category : p.category,
+        installmentAmount:
+          updates.installmentAmount !== undefined
+            ? updates.installmentAmount
+            : p.installmentAmount,
+        totalAmount:
+          updates.totalAmount !== undefined ? updates.totalAmount : p.totalAmount,
+        purchaseDate:
+          updates.purchaseDate !== undefined ? updates.purchaseDate : p.purchaseDate,
+      };
+    });
+    setCardPurchases(updatedList);
+
+    if (groupPurchase?.cardId) {
+      await syncCardInvoicesWithTransactions(groupPurchase.cardId, cards, updatedList);
     }
+
+    if (!user) return;
 
     setIsSyncing(true);
     try {
@@ -984,6 +1093,7 @@ export function useFirestoreFinance() {
     deleteCardPurchaseGroup,
     updateCardPurchase,
     updateCardPurchaseGroup,
+    syncCardInvoicesWithTransactions,
     resetToDefault,
   };
 }

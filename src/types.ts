@@ -14,6 +14,7 @@ export interface Transaction {
   date: string; // YYYY-MM-DD
   status: SalaryStatus | ExpenseStatus;
   notes?: string;
+  cardId?: string; // ID do cartão de crédito quando a movimentação for uma fatura
 }
 
 export interface TagItem {
