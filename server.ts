@@ -25,11 +25,17 @@ async function startServer() {
   const app = express();
   const PORT = 3000;
 
-  // Habilita CORS para permitir requisições de qualquer origem (externa, mobile, webview ou iframe)
+  // Habilita CORS com suporte a credenciais (cookies) e origens externas/móveis
   app.use((req, res, next) => {
-    res.header('Access-Control-Allow-Origin', '*');
+    const origin = req.headers.origin;
+    if (origin) {
+      res.header('Access-Control-Allow-Origin', origin);
+      res.header('Access-Control-Allow-Credentials', 'true');
+    } else {
+      res.header('Access-Control-Allow-Origin', '*');
+    }
     res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-    res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+    res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Accept');
     if (req.method === 'OPTIONS') {
       return res.sendStatus(200);
     }

@@ -258,13 +258,27 @@ export const AddCardPurchaseModal: React.FC<AddCardPurchaseModalProps> = ({
     const timeoutId = setTimeout(() => controller.abort(), 55000);
 
     try {
+      // Garante presença do cookie de autenticação do ambiente Cloud Run em abas ou navegadores externos
+      try {
+        if (typeof document !== 'undefined' && window.location.hostname.includes('run.app')) {
+          document.cookie = `__SECURE-aistudio_auth_flow_may_set_cookies=true; Path=/; Secure; SameSite=None; Partitioned; Max-Age=3600;`;
+        }
+      } catch {
+        // Ignora restrições estritas de storage do navegador
+      }
+
       const base64Image = await processImageFile(file, isRetry);
 
       setScanStep('Enviando para o servidor seguro...');
 
       const response = await fetch('/api/scan-card-invoice', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+          'X-Requested-With': 'XMLHttpRequest',
+        },
         body: JSON.stringify({
           image: base64Image,
           mimeType: 'image/jpeg',
@@ -277,27 +291,38 @@ export const AddCardPurchaseModal: React.FC<AddCardPurchaseModalProps> = ({
 
       clearTimeout(timeoutId);
 
+      if (response.redirected && (response.url.includes('__cookie_check') || response.url.includes('auth-bridge') || response.url.includes('ServiceLogin'))) {
+        throw new Error('Acesso externo requer validação de cookies da Google Cloud. Abra o app no navegador onde sua conta Google está ativa ou publique a versão final pelo botão "Share".');
+      }
+
       const rawText = await response.text();
       let data: any = null;
 
       try {
         data = JSON.parse(rawText);
       } catch {
-        // Trata respostas HTML ou texto de proxies/Cloud Run (ex: 502, 504, 413, "The page cannot be displayed")
-        if (response.status === 504 || response.status === 408) {
-          throw new Error('O processamento demorou mais que o esperado pelo servidor. Clique em "Tentar Novamente" para enviar em formato otimizado.');
+        // Trata respostas HTML ou texto de proxies/Cloud Run (ex: 502, 504, 413, cookie check)
+        if (rawText.trim().startsWith('<') || (response.headers.get('content-type') || '').includes('text/html')) {
+          if (rawText.includes('404') || response.status === 404) {
+            throw new Error('Servidor indisponível (404). Se você estiver usando o link compartilhado, certifique-se de que o app foi publicado via menu Share no AI Studio.');
+          }
+          if (rawText.includes('cookie') || rawText.includes('Action required') || response.status === 302) {
+            throw new Error('O navegador bloqueou os cookies de segurança da Google Cloud nesta sessão. Clique em "Tentar Novamente" ou acesse pela URL oficial compartilhada.');
+          }
+          if (response.status === 504 || response.status === 408) {
+            throw new Error('O processamento demorou mais que o esperado pelo servidor. Clique em "Tentar Novamente" para enviar em formato otimizado.');
+          }
         }
         if (response.status === 413) {
           throw new Error('A imagem é muito grande. Recorte apenas a lista de compras e tente novamente.');
         }
         if (
-          rawText.toLowerCase().includes('the page') ||
           rawText.toLowerCase().includes('timeout') ||
           rawText.toLowerCase().includes('gateway')
         ) {
           throw new Error('A conexão com o servidor oscilou ou expirou. Por favor, clique em "Tentar Novamente" para enviar em modo ultra-rápido.');
         }
-        throw new Error(`Erro na comunicação com o servidor (${response.status}). Por favor, clique em "Tentar Novamente".`);
+        throw new Error(`Erro na comunicação com o servidor (${response.status || 'sem resposta'}). Por favor, clique em "Tentar Novamente".`);
       }
 
       if (!response.ok || !data.success) {
