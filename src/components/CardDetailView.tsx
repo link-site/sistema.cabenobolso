@@ -97,9 +97,23 @@ export const CardDetailView: React.FC<CardDetailViewProps> = ({
   } | null>(null);
   const [showDeleteCardModal, setShowDeleteCardModal] = useState<boolean>(false);
 
-  // Filter purchases for this specific card
+  // Filter purchases for this specific card, sorted with most recent date first
   const thisCardPurchases = useMemo(() => {
-    return cardPurchases.filter((p) => p.cardId === card.id);
+    return cardPurchases
+      .filter((p) => p.cardId === card.id)
+      .sort((a, b) => {
+        const dateA = a.purchaseDate || a.billingDate || '';
+        const dateB = b.purchaseDate || b.billingDate || '';
+        if (dateA !== dateB) {
+          return dateB.localeCompare(dateA);
+        }
+        const billA = a.billingDate || '';
+        const billB = b.billingDate || '';
+        if (billA !== billB) {
+          return billB.localeCompare(billA);
+        }
+        return b.currentInstallment - a.currentInstallment;
+      });
   }, [cardPurchases, card.id]);
 
   // Calculate totals per month for this year to display in month tabs
@@ -123,9 +137,10 @@ export const CardDetailView: React.FC<CardDetailViewProps> = ({
     return sums;
   }, [thisCardPurchases, selectedYear]);
 
-  // Filter purchases based on active selection (year + month or all) & search query
+  // Filter purchases based on active selection (year + month or all) & search query,
+  // ordered with most recent dates on top and older ones below
   const filteredPurchases = useMemo(() => {
-    return thisCardPurchases.filter((p) => {
+    const list = thisCardPurchases.filter((p) => {
       // Name search
       if (searchTerm.trim()) {
         const query = searchTerm.toLowerCase();
@@ -138,6 +153,30 @@ export const CardDetailView: React.FC<CardDetailViewProps> = ({
 
       const { year, month } = parseDateMonthYear(p.billingDate);
       return year === selectedYear && month === selectedMonth;
+    });
+
+    return [...list].sort((a, b) => {
+      // 1. Data da Compra (mais recente em cima, antiga embaixo)
+      const dateA = a.purchaseDate || a.billingDate || '';
+      const dateB = b.purchaseDate || b.billingDate || '';
+      if (dateA !== dateB) {
+        return dateB.localeCompare(dateA);
+      }
+
+      // 2. Data de Faturamento/Vencimento
+      const billA = a.billingDate || '';
+      const billB = b.billingDate || '';
+      if (billA !== billB) {
+        return billB.localeCompare(billA);
+      }
+
+      // 3. Parcela (parcela mais recente/avançada primeiro)
+      if (a.currentInstallment !== b.currentInstallment) {
+        return b.currentInstallment - a.currentInstallment;
+      }
+
+      // 4. Nome da compra
+      return a.name.localeCompare(b.name);
     });
   }, [thisCardPurchases, selectedYear, selectedMonth, viewAllMonths, searchTerm]);
 
@@ -461,7 +500,15 @@ export const CardDetailView: React.FC<CardDetailViewProps> = ({
             <table className="w-full text-left border-collapse">
               <thead>
                 <tr className="border-b border-zinc-800 bg-[#14141a]/60 text-[11px] uppercase tracking-wider text-zinc-400 font-bold">
-                  <th className="py-3 px-4">Data Compra</th>
+                  <th className="py-3 px-4">
+                    <div className="flex items-center gap-1.5">
+                      <Clock className="w-3.5 h-3.5 text-[#00ff7f]" />
+                      <span>Data Compra</span>
+                      <span className="text-[10px] text-zinc-500 font-normal lowercase tracking-normal">
+                        (recentes 1º)
+                      </span>
+                    </div>
+                  </th>
                   <th className="py-3 px-4">Nome da Compra</th>
                   <th className="py-3 px-4">Parcela</th>
                   <th className="py-3 px-4">Mês de Cobrança</th>
