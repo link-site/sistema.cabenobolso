@@ -2,7 +2,7 @@ import express from 'express';
 import path from 'path';
 import { createServer as createViteServer } from 'vite';
 import dotenv from 'dotenv';
-import { GoogleGenAI } from '@google/genai';
+import { GoogleGenAI, Type } from '@google/genai';
 
 dotenv.config();
 
@@ -240,6 +240,95 @@ Responda ESTRITAMENTE em formato JSON com a seguinte estrutura:
       return res.status(500).json({
         success: false,
         error: userFriendlyMsg,
+      });
+    }
+  });
+
+  // Endpoint para pesquisar preços de itens de supermercado em Fortaleza com Gemini e Search Grounding
+  app.post('/api/search-market-prices', async (req, res) => {
+    try {
+      const { itemName, category, apiKey } = req.body;
+
+      if (!itemName) {
+        return res.status(400).json({
+          success: false,
+          error: 'O nome do item é obrigatório.',
+        });
+      }
+
+      const ai = getGeminiClient(apiKey);
+
+      const prompt = `Você é um assistente de economia doméstica especialista em Fortaleza, Ceará.
+Faça uma pesquisa e análise realista de preços para o item de supermercado descrito a seguir:
+- Item: "${itemName}"
+- Categoria sugerida: "${category || 'Geral'}"
+
+Pesquise e estime o preço do item para cada um dos seguintes supermercados específicos de Fortaleza:
+1. Frangolândia
+2. Lagoa (Supermercado Lagoa)
+3. Guará (Supermercado Guará)
+4. CenterBox (Supermercado CenterBox)
+5. Atacadão (Fortaleza)
+6. Mercadão (Supermercado Mercadão)
+7. São Luiz (Mercadinhos São Luiz)
+
+Siga estas regras de precificação realistas para Fortaleza:
+- Atacadão: Geralmente o mais barato, preço de atacado.
+- Mercadinhos São Luiz e Guará: Geralmente mais premium, preços um pouco mais altos, mas com excelente qualidade e marcas premium.
+- Frangolândia, Lagoa, CenterBox, Mercadão: Preços intermediários e competitivos.
+- Atribua um nome de produto realista e comercial com marca popular correspondente à categoria (por exemplo, se o item for "leite", use marcas como "Betânia", "Camponesa", "Ninho", etc. Se for "café", use "Santa Clara", "Pilão", "Kimimo").
+- Se o produto não for normalmente vendido no Atacadão (ex: itens muito específicos de padaria artesanal) ou em outro, marque 'isAvailable' como false.
+
+Determine qual é o supermercado com o menor preço ('cheapestSupermarket') e o valor correspondente ('lowestPrice').`;
+
+      const response = await ai.models.generateContent({
+        model: 'gemini-3.8-flash',
+        contents: prompt,
+        config: {
+          responseMimeType: 'application/json',
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              itemName: { type: Type.STRING },
+              category: { type: Type.STRING },
+              lowestPrice: { type: Type.NUMBER },
+              cheapestSupermarket: { type: Type.STRING },
+              comparisons: {
+                type: Type.ARRAY,
+                items: {
+                  type: Type.OBJECT,
+                  properties: {
+                    supermarket: { type: Type.STRING },
+                    productName: { type: Type.STRING },
+                    price: { type: Type.NUMBER },
+                    isAvailable: { type: Type.BOOLEAN }
+                  },
+                  required: ["supermarket", "productName", "price", "isAvailable"]
+                }
+              }
+            },
+            required: ["itemName", "category", "lowestPrice", "cheapestSupermarket", "comparisons"]
+          },
+          tools: [{ googleSearch: {} }]
+        }
+      });
+
+      if (!response || !response.text) {
+        throw new Error('Não foi possível obter os preços do Gemini.');
+      }
+
+      const responseText = response.text.trim();
+      const parsedData = JSON.parse(responseText);
+
+      return res.json({
+        success: true,
+        data: parsedData
+      });
+    } catch (error: any) {
+      console.error('Erro no /api/search-market-prices:', error);
+      return res.status(500).json({
+        success: false,
+        error: error?.message || 'Erro ao consultar preços de mercado.'
       });
     }
   });

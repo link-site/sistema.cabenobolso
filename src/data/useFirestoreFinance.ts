@@ -13,7 +13,7 @@ import {
 } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { useAuth } from '../context/AuthContext';
-import { Transaction, TagItem, CreditCard, CardPurchase } from '../types';
+import { Transaction, TagItem, CreditCard, CardPurchase, MarketItem } from '../types';
 import { DEFAULT_TAGS, INITIAL_TRANSACTIONS, INITIAL_CARDS, INITIAL_CARD_PURCHASES } from './initialData';
 import { buildClampedDate, parseDateMonthYear } from '../utils/formatters';
 import { isCardTransaction, getCardInvoiceForMonthYear } from '../utils/creditCardSync';
@@ -23,6 +23,7 @@ const LOCAL_STORAGE_KEYS = {
   TAGS: 'cabe_no_bolso_tags_v1',
   CARDS: 'cabe_no_bolso_cards_v1',
   CARD_PURCHASES: 'cabe_no_bolso_card_purchases_v1',
+  MARKET_ITEMS: 'cabe_no_bolso_market_items_v1',
 };
 
 export function useFirestoreFinance() {
@@ -32,6 +33,7 @@ export function useFirestoreFinance() {
   const [tags, setTags] = useState<TagItem[]>([]);
   const [cards, setCards] = useState<CreditCard[]>([]);
   const [cardPurchases, setCardPurchases] = useState<CardPurchase[]>([]);
+  const [marketItems, setMarketItems] = useState<MarketItem[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [isSyncing, setIsSyncing] = useState<boolean>(false);
   const [hasInitializedFirestore, setHasInitializedFirestore] = useState<boolean>(false);
@@ -51,17 +53,20 @@ export function useFirestoreFinance() {
         const savedTags = localStorage.getItem(LOCAL_STORAGE_KEYS.TAGS);
         const savedCards = localStorage.getItem(LOCAL_STORAGE_KEYS.CARDS);
         const savedPurchases = localStorage.getItem(LOCAL_STORAGE_KEYS.CARD_PURCHASES);
+        const savedMarket = localStorage.getItem(LOCAL_STORAGE_KEYS.MARKET_ITEMS);
 
         setTransactions(savedTx ? JSON.parse(savedTx) : INITIAL_TRANSACTIONS);
         setTags(savedTags ? JSON.parse(savedTags) : DEFAULT_TAGS);
         setCards(savedCards ? JSON.parse(savedCards) : INITIAL_CARDS);
         setCardPurchases(savedPurchases ? JSON.parse(savedPurchases) : INITIAL_CARD_PURCHASES);
+        setMarketItems(savedMarket ? JSON.parse(savedMarket) : []);
       } catch (err) {
         console.error('Failed to load local storage:', err);
         setTransactions(INITIAL_TRANSACTIONS);
         setTags(DEFAULT_TAGS);
         setCards(INITIAL_CARDS);
         setCardPurchases(INITIAL_CARD_PURCHASES);
+        setMarketItems([]);
       }
       setIsLoading(false);
       return;
@@ -75,6 +80,7 @@ export function useFirestoreFinance() {
     const cardsColRef = collection(db, 'users', userId, 'cards');
     const tagsColRef = collection(db, 'users', userId, 'tags');
     const purchasesColRef = collection(db, 'users', userId, 'card_purchases');
+    const marketColRef = collection(db, 'users', userId, 'market_items');
 
     // First check if user data needs initial bootstrap/seed
     const bootstrapUserData = async () => {
@@ -264,7 +270,30 @@ export function useFirestoreFinance() {
       }
     );
 
-    unsubscribesRef.current = [unsubTx, unsubCards, unsubPurchases, unsubTags];
+    // Listen to Market Items
+    const unsubMarket = onSnapshot(
+      marketColRef,
+      (snapshot) => {
+        const loaded: MarketItem[] = snapshot.docs.map((docSnap) => {
+          const data = docSnap.data();
+          return {
+            id: docSnap.id,
+            name: data.name || '',
+            category: data.category || '',
+            createdAt: data.createdAt || new Date().toISOString(),
+            lowestPrice: data.lowestPrice !== undefined ? data.lowestPrice : undefined,
+            cheapestSupermarket: data.cheapestSupermarket !== undefined ? data.cheapestSupermarket : undefined,
+            comparisons: data.comparisons !== undefined ? data.comparisons : undefined,
+          };
+        });
+        setMarketItems(loaded);
+      },
+      (error) => {
+        console.error('Firestore Market Items listener error:', error);
+      }
+    );
+
+    unsubscribesRef.current = [unsubTx, unsubCards, unsubPurchases, unsubTags, unsubMarket];
 
     return () => {
       unsubscribesRef.current.forEach((unsub) => unsub());
@@ -278,8 +307,9 @@ export function useFirestoreFinance() {
       localStorage.setItem(LOCAL_STORAGE_KEYS.TAGS, JSON.stringify(tags));
       localStorage.setItem(LOCAL_STORAGE_KEYS.CARDS, JSON.stringify(cards));
       localStorage.setItem(LOCAL_STORAGE_KEYS.CARD_PURCHASES, JSON.stringify(cardPurchases));
+      localStorage.setItem(LOCAL_STORAGE_KEYS.MARKET_ITEMS, JSON.stringify(marketItems));
     }
-  }, [transactions, tags, cards, cardPurchases, user]);
+  }, [transactions, tags, cards, cardPurchases, marketItems, user]);
 
   // Transaction Actions
   const addTransaction = async (transaction: Omit<Transaction, 'id'>) => {
@@ -1097,11 +1127,92 @@ export function useFirestoreFinance() {
     }
   };
 
+  const addMarketItem = async (item: Omit<MarketItem, 'id' | 'createdAt'>) => {
+    if (!user) {
+      const newItem: MarketItem = {
+        ...item,
+        id: `market-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+        createdAt: new Date().toISOString(),
+      };
+      setMarketItems((prev) => [newItem, ...prev]);
+      return newItem;
+    }
+
+    setIsSyncing(true);
+    try {
+      const colRef = collection(db, 'users', user.uid, 'market_items');
+      const docRef = await addDoc(colRef, {
+        name: item.name,
+        category: item.category,
+        createdAt: new Date().toISOString(),
+        lowestPrice: item.lowestPrice !== undefined ? item.lowestPrice : null,
+        cheapestSupermarket: item.cheapestSupermarket !== undefined ? item.cheapestSupermarket : null,
+        comparisons: item.comparisons !== undefined ? item.comparisons : null,
+      });
+      return {
+        ...item,
+        id: docRef.id,
+        createdAt: new Date().toISOString(),
+      };
+    } catch (e) {
+      console.error('Error adding market item:', e);
+      throw e;
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
+  const updateMarketItem = async (id: string, updates: Partial<MarketItem>) => {
+    if (!user) {
+      setMarketItems((prev) =>
+        prev.map((it) => (it.id === id ? { ...it, ...updates } : it))
+      );
+      return;
+    }
+
+    setIsSyncing(true);
+    try {
+      const docRef = doc(db, 'users', user.uid, 'market_items', id);
+      const cleanUpdates: any = {};
+      if (updates.name !== undefined) cleanUpdates.name = updates.name;
+      if (updates.category !== undefined) cleanUpdates.category = updates.category;
+      if (updates.lowestPrice !== undefined) cleanUpdates.lowestPrice = updates.lowestPrice;
+      if (updates.cheapestSupermarket !== undefined) cleanUpdates.cheapestSupermarket = updates.cheapestSupermarket;
+      if (updates.comparisons !== undefined) cleanUpdates.comparisons = updates.comparisons;
+
+      await updateDoc(docRef, cleanUpdates);
+    } catch (e) {
+      console.error('Error updating market item:', e);
+      throw e;
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
+  const deleteMarketItem = async (id: string) => {
+    if (!user) {
+      setMarketItems((prev) => prev.filter((it) => it.id !== id));
+      return;
+    }
+
+    setIsSyncing(true);
+    try {
+      const docRef = doc(db, 'users', user.uid, 'market_items', id);
+      await deleteDoc(docRef);
+    } catch (e) {
+      console.error('Error deleting market item:', e);
+      throw e;
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
   return {
     transactions,
     tags,
     cards,
     cardPurchases,
+    marketItems,
     isLoading,
     isSyncing,
     addTransaction,
@@ -1123,5 +1234,8 @@ export function useFirestoreFinance() {
     updateCardPurchaseGroup,
     syncCardInvoicesWithTransactions,
     resetToDefault,
+    addMarketItem,
+    updateMarketItem,
+    deleteMarketItem,
   };
 }

@@ -8,6 +8,7 @@ import { BudgetView } from './components/BudgetView';
 import { CreditCardsView } from './components/CreditCardsView';
 import { DashboardView } from './components/DashboardView';
 import { ReportsView } from './components/ReportsView';
+import { MercadoView } from './components/MercadoView';
 import { LoginScreen } from './components/LoginScreen';
 import { AccessDeniedScreen } from './components/AccessDeniedScreen';
 import { AuthorizedEmailsModal } from './components/AuthorizedEmailsModal';
@@ -16,7 +17,7 @@ import { RotateCcw, Cloud, ShieldCheck } from 'lucide-react';
 function MainApp() {
   const { user, loading: authLoading } = useAuth();
   const { isAuthorized, isCheckingAccess, isAdmin } = useAccessControl();
-  const [activeTab, setActiveTab] = useState<MenuTab>('orcamento');
+  const [activeTab, setActiveTab] = useState<MenuTab>('dashboard');
   const [isAddCardModalOpen, setIsAddCardModalOpen] = useState(false);
   const [isWhitelistModalOpen, setIsWhitelistModalOpen] = useState(false);
   const [guestMode, setGuestMode] = useState(false);
@@ -46,6 +47,10 @@ function MainApp() {
     updateCardPurchase,
     updateCardPurchaseGroup,
     resetToDefault,
+    marketItems,
+    addMarketItem,
+    updateMarketItem,
+    deleteMarketItem,
   } = useFirestoreFinance();
 
   const handleOpenAddCardModal = () => {
@@ -149,6 +154,15 @@ function MainApp() {
                   cards={cards}
                   tags={tags}
                   cardPurchases={cardPurchases}
+                />
+              )}
+
+              {activeTab === 'mercado' && (
+                <MercadoView
+                  marketItems={marketItems}
+                  onAddMarketItem={addMarketItem}
+                  onUpdateMarketItem={updateMarketItem}
+                  onDeleteMarketItem={deleteMarketItem}
                 />
               )}
             </>

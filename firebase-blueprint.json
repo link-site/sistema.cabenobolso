@@ -83,6 +83,23 @@
             "createdAt": { "type": "string", "format": "date-time", "description": "Creation timestamp" }
           },
           "required": ["cardId", "name", "totalAmount", "installmentAmount", "installmentCount", "currentInstallment", "purchaseDate", "billingDate"]
+        },
+        "market_items": {
+          "title": "Market Shopping Items",
+          "description": "User's shopping list items and matched lowest supermarket prices in Fortaleza",
+          "type": "object",
+          "properties": {
+            "name": { "type": "string", "description": "Name of the shopping list item" },
+            "category": { "type": "string", "description": "Category of the item" },
+            "createdAt": { "type": "string", "format": "date-time", "description": "Creation timestamp" },
+            "lowestPrice": { "type": "number", "description": "Lowest price found in Fortaleza supermarkets" },
+            "cheapestSupermarket": { "type": "string", "description": "Name of the cheapest supermarket" },
+            "comparisons": {
+              "type": "array",
+              "description": "Comparison details across supermarkets"
+            }
+          },
+          "required": ["name", "category"]
         }
       }
     }

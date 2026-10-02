@@ -1,4 +1,4 @@
-export type MenuTab = 'dashboard' | 'orcamento' | 'cartoes' | 'relatorios';
+export type MenuTab = 'dashboard' | 'orcamento' | 'cartoes' | 'relatorios' | 'mercado';
 
 export type TransactionType = 'salario' | 'gasto';
 
@@ -69,3 +69,20 @@ export interface AuthorizedEmail {
 }
 
 export const MASTER_ADMIN_EMAIL = 'sousaleidiane242025@gmail.com';
+
+export interface MarketItemComparison {
+  supermarket: string;
+  productName: string;
+  price: number;
+  isAvailable: boolean;
+}
+
+export interface MarketItem {
+  id: string;
+  name: string;
+  category: string;
+  createdAt: string;
+  lowestPrice?: number;
+  cheapestSupermarket?: string;
+  comparisons?: MarketItemComparison[];
+}

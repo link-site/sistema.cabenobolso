@@ -4,6 +4,7 @@ import {
   CalendarCheck2,
   CreditCard,
   BarChart3,
+  Store,
   Wallet,
   Cloud,
   LogOut,
@@ -62,6 +63,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
       label: 'Relatórios',
       desc: 'Gráficos & Análises',
       icon: BarChart3,
+    },
+    {
+      id: 'mercado' as MenuTab,
+      label: 'Mercado',
+      desc: 'Pesquisa & Comparação',
+      icon: Store,
     },
   ];
 
