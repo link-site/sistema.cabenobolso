@@ -14,9 +14,12 @@ import {
   Search,
   ShoppingCart,
   RefreshCw,
-  ArrowUpDown,
+  Copy,
+  CheckCheck,
 } from 'lucide-react';
-import { MarketItem, MarketItemComparison } from '../types';
+import { MarketItem } from '../types';
+import { formatCurrency } from '../utils/formatters';
+import { DEFAULT_MARKET_ITEMS } from '../data/initialData';
 
 interface MercadoViewProps {
   marketItems: MarketItem[];
@@ -103,6 +106,53 @@ export const MercadoView: React.FC<MercadoViewProps> = ({
   }, 0);
 
   // Form handle
+  const [copiedList, setCopiedList] = useState(false);
+
+  const handleCopyList = () => {
+    if (marketItems.length === 0) return;
+    const lines = [
+      '🛒 *Lista de Compras & Cotação (Fortaleza)*',
+      `Supermercado Recomendado: ${bestSupermarket}`,
+      `Total Cesta Mínima: ${formatCurrency(totalLowestBudget)}`,
+      '',
+      ...marketItems.map((item) => {
+        const priceStr = item.lowestPrice !== undefined && item.lowestPrice !== null
+          ? `${formatCurrency(item.lowestPrice)} (${item.cheapestSupermarket || 'Atacadão'})`
+          : 'Sem cotação';
+        return `• ${item.name} [${item.category}]: ${priceStr}`;
+      }),
+      '',
+      'Gerado pelo Sistema Cabe no bolso'
+    ];
+    navigator.clipboard.writeText(lines.join('\n'));
+    setCopiedList(true);
+    setTimeout(() => setCopiedList(false), 2500);
+  };
+
+  const handleLoadDefaultItems = async () => {
+    setIsSubmitting(true);
+    setError(null);
+    try {
+      for (const def of DEFAULT_MARKET_ITEMS) {
+        const alreadyExists = marketItems.some((it) => it.name.toLowerCase() === def.name.toLowerCase());
+        if (!alreadyExists) {
+          await onAddMarketItem({
+            name: def.name,
+            category: def.category,
+            lowestPrice: def.lowestPrice,
+            cheapestSupermarket: def.cheapestSupermarket,
+            comparisons: def.comparisons,
+          });
+        }
+      }
+    } catch (err: any) {
+      console.error(err);
+      setError('Erro ao carregar itens de exemplo.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
   const handleAddItem = async (e?: React.FormEvent, customItem?: { name: string; category: string }) => {
     if (e) e.preventDefault();
     
@@ -252,20 +302,40 @@ export const MercadoView: React.FC<MercadoViewProps> = ({
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           {marketItems.length > 0 && (
-            <button
-              onClick={handleScanAllPrices}
-              disabled={globalSearching || searchingId !== null}
-              className="flex items-center gap-2 bg-[#00ff7f]/10 border border-[#00ff7f]/30 hover:bg-[#00ff7f]/20 text-[#00ff7f] px-3.5 py-2.5 rounded-xl font-bold text-xs transition-all disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"
-            >
-              {globalSearching ? (
-                <Loader2 className="w-3.5 h-3.5 animate-spin" />
-              ) : (
-                <RefreshCw className="w-3.5 h-3.5 animate-spin-slow" />
-              )}
-              <span>{globalSearching ? 'Varrendo Preços...' : 'Buscar Todos os Preços'}</span>
-            </button>
+            <>
+              <button
+                onClick={handleCopyList}
+                className="flex items-center gap-1.5 bg-zinc-900 border border-zinc-800 hover:border-[#00ff7f]/40 hover:text-white text-zinc-300 px-3 py-2.5 rounded-xl font-bold text-xs transition-all cursor-pointer"
+                title="Copiar lista de compras para a área de transferência (WhatsApp, notas)"
+              >
+                {copiedList ? (
+                  <>
+                    <CheckCheck className="w-3.5 h-3.5 text-[#00ff7f]" />
+                    <span className="text-[#00ff7f]">Lista Copiada!</span>
+                  </>
+                ) : (
+                  <>
+                    <Copy className="w-3.5 h-3.5 text-zinc-400" />
+                    <span>Copiar Lista</span>
+                  </>
+                )}
+              </button>
+
+              <button
+                onClick={handleScanAllPrices}
+                disabled={globalSearching || searchingId !== null}
+                className="flex items-center gap-2 bg-[#00ff7f]/10 border border-[#00ff7f]/30 hover:bg-[#00ff7f]/20 text-[#00ff7f] px-3.5 py-2.5 rounded-xl font-bold text-xs transition-all disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"
+              >
+                {globalSearching ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin-slow" />
+                )}
+                <span>{globalSearching ? 'Varrendo Preços...' : 'Buscar Todos os Preços'}</span>
+              </button>
+            </>
           )}
         </div>
       </div>
@@ -293,7 +363,7 @@ export const MercadoView: React.FC<MercadoViewProps> = ({
           </div>
           <p className="text-[11px] font-bold text-zinc-400 uppercase tracking-wider">Cesta (Preço Mínimo)</p>
           <p className="text-2xl font-black text-[#00ff7f] mt-1">
-            {totalLowestBudget > 0 ? `R$ ${totalLowestBudget.toFixed(2)}` : 'R$ 0,00'}
+            {formatCurrency(totalLowestBudget)}
           </p>
           <div className="flex items-center gap-1.5 text-[10px] text-zinc-400 mt-2">
             <Check className="w-3.5 h-3.5 text-[#00ff7f]" />
@@ -327,7 +397,7 @@ export const MercadoView: React.FC<MercadoViewProps> = ({
           </div>
           <p className="text-[11px] font-bold text-zinc-400 uppercase tracking-wider">Economia Estimada</p>
           <p className="text-2xl font-black text-amber-400 mt-1">
-            {estimatedSavings > 0 ? `R$ ${estimatedSavings.toFixed(2)}` : 'R$ 0,00'}
+            {formatCurrency(estimatedSavings)}
           </p>
           <div className="flex items-center gap-1.5 text-[10px] text-zinc-400 mt-2">
             <TrendingDown className="w-3.5 h-3.5 text-[#00ff7f]" />
@@ -489,9 +559,19 @@ export const MercadoView: React.FC<MercadoViewProps> = ({
               <ShoppingCart className="w-5 h-5" />
             </div>
             <p className="text-xs font-bold text-zinc-400">Nenhum item na sua lista de compras.</p>
-            <p className="text-[11px] text-zinc-500 mt-1 max-w-sm mx-auto">
+            <p className="text-[11px] text-zinc-500 mt-1 max-w-sm mx-auto mb-4">
               Adicione itens manualmente ou selecione uma das sugestões acima de produtos comuns em Fortaleza.
             </p>
+            {marketItems.length === 0 && (
+              <button
+                onClick={handleLoadDefaultItems}
+                disabled={isSubmitting || globalSearching}
+                className="inline-flex items-center gap-2 bg-[#00ff7f]/10 border border-[#00ff7f]/30 hover:bg-[#00ff7f]/20 text-[#00ff7f] text-xs font-bold px-4 py-2 rounded-xl transition-all cursor-pointer disabled:opacity-50"
+              >
+                <Sparkles className="w-3.5 h-3.5" />
+                <span>Carregar Itens de Exemplo (Fortaleza)</span>
+              </button>
+            )}
           </div>
         ) : (
           <div className="divide-y divide-zinc-900">
@@ -538,7 +618,7 @@ export const MercadoView: React.FC<MercadoViewProps> = ({
                               {item.cheapestSupermarket}
                             </span>
                             <span className="text-sm font-black text-[#00ff7f] block mt-0.5">
-                              R$ {item.lowestPrice?.toFixed(2)}
+                              {formatCurrency(item.lowestPrice!)}
                             </span>
                           </div>
                         ) : (
@@ -630,7 +710,7 @@ export const MercadoView: React.FC<MercadoViewProps> = ({
                                   {comp.isAvailable ? (
                                     <div className="flex flex-col items-end">
                                       <span className={`font-semibold ${isCheapest ? 'text-[#00ff7f] font-black' : 'text-zinc-100'}`}>
-                                        R$ {comp.price.toFixed(2)}
+                                        {formatCurrency(comp.price)}
                                       </span>
                                       {isCheapest && (
                                         <span className="text-[8px] uppercase tracking-wider text-[#00ff7f] font-black mt-0.5 bg-[#00ff7f]/10 border border-[#00ff7f]/20 px-1 py-0.2 rounded leading-none">

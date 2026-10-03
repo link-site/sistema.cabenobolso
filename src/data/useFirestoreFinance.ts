@@ -14,7 +14,13 @@ import {
 import { db } from '../lib/firebase';
 import { useAuth } from '../context/AuthContext';
 import { Transaction, TagItem, CreditCard, CardPurchase, MarketItem } from '../types';
-import { DEFAULT_TAGS, INITIAL_TRANSACTIONS, INITIAL_CARDS, INITIAL_CARD_PURCHASES } from './initialData';
+import {
+  DEFAULT_TAGS,
+  INITIAL_TRANSACTIONS,
+  INITIAL_CARDS,
+  INITIAL_CARD_PURCHASES,
+  DEFAULT_MARKET_ITEMS,
+} from './initialData';
 import { buildClampedDate, parseDateMonthYear } from '../utils/formatters';
 import { isCardTransaction, getCardInvoiceForMonthYear } from '../utils/creditCardSync';
 
@@ -59,14 +65,15 @@ export function useFirestoreFinance() {
         setTags(savedTags ? JSON.parse(savedTags) : DEFAULT_TAGS);
         setCards(savedCards ? JSON.parse(savedCards) : INITIAL_CARDS);
         setCardPurchases(savedPurchases ? JSON.parse(savedPurchases) : INITIAL_CARD_PURCHASES);
-        setMarketItems(savedMarket ? JSON.parse(savedMarket) : []);
+        const parsedMarket = savedMarket ? JSON.parse(savedMarket) : null;
+        setMarketItems(parsedMarket && parsedMarket.length > 0 ? parsedMarket : DEFAULT_MARKET_ITEMS);
       } catch (err) {
         console.error('Failed to load local storage:', err);
         setTransactions(INITIAL_TRANSACTIONS);
         setTags(DEFAULT_TAGS);
         setCards(INITIAL_CARDS);
         setCardPurchases(INITIAL_CARD_PURCHASES);
-        setMarketItems([]);
+        setMarketItems(DEFAULT_MARKET_ITEMS);
       }
       setIsLoading(false);
       return;
@@ -1042,6 +1049,7 @@ export function useFirestoreFinance() {
       setTags(DEFAULT_TAGS);
       setCards(INITIAL_CARDS);
       setCardPurchases(INITIAL_CARD_PURCHASES);
+      setMarketItems(DEFAULT_MARKET_ITEMS);
       return;
     }
 
@@ -1053,12 +1061,14 @@ export function useFirestoreFinance() {
       const cardsColRef = collection(db, 'users', userId, 'cards');
       const tagsColRef = collection(db, 'users', userId, 'tags');
       const purchasesColRef = collection(db, 'users', userId, 'card_purchases');
+      const marketColRef = collection(db, 'users', userId, 'market_items');
 
-      const [txSnap, cardsSnap, tagsSnap, purchasesSnap] = await Promise.all([
+      const [txSnap, cardsSnap, tagsSnap, purchasesSnap, marketSnap] = await Promise.all([
         getDocs(txColRef),
         getDocs(cardsColRef),
         getDocs(tagsColRef),
         getDocs(purchasesColRef),
+        getDocs(marketColRef),
       ]);
 
       const batch = writeBatch(db);
@@ -1066,6 +1076,7 @@ export function useFirestoreFinance() {
       cardsSnap.forEach((d) => batch.delete(d.ref));
       tagsSnap.forEach((d) => batch.delete(d.ref));
       purchasesSnap.forEach((d) => batch.delete(d.ref));
+      marketSnap.forEach((d) => batch.delete(d.ref));
 
       // Re-seed initial data
       DEFAULT_TAGS.forEach((t) => {
@@ -1115,6 +1126,18 @@ export function useFirestoreFinance() {
           purchaseDate: cp.purchaseDate,
           billingDate: cp.billingDate,
           purchaseGroupId: cp.purchaseGroupId,
+          createdAt: new Date().toISOString(),
+        });
+      });
+
+      DEFAULT_MARKET_ITEMS.forEach((m) => {
+        const ref = doc(marketColRef);
+        batch.set(ref, {
+          name: m.name,
+          category: m.category,
+          lowestPrice: m.lowestPrice,
+          cheapestSupermarket: m.cheapestSupermarket,
+          comparisons: m.comparisons,
           createdAt: new Date().toISOString(),
         });
       });

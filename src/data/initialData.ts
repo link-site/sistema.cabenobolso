@@ -1,4 +1,4 @@
-import { Transaction, TagItem, CreditCard, CardPurchase } from '../types';
+import { Transaction, TagItem, CreditCard, CardPurchase, MarketItem } from '../types';
 
 export const DEFAULT_TAGS: TagItem[] = [
   // Tags para Salário
@@ -208,4 +208,76 @@ export const INITIAL_CARD_PURCHASES: CardPurchase[] = [
     purchaseGroupId: 'grp-cp-5',
   },
 ];
+
+export const DEFAULT_MARKET_ITEMS: MarketItem[] = [
+  {
+    id: 'market-1',
+    name: 'Leite Integral Betânia 1L',
+    category: 'Frios & Laticínios',
+    createdAt: '2026-09-01T10:00:00.000Z',
+    lowestPrice: 5.19,
+    cheapestSupermarket: 'Atacadão',
+    comparisons: [
+      { supermarket: 'Atacadão', productName: 'Leite UHT Betânia Integral 1L', price: 5.19, isAvailable: true },
+      { supermarket: 'Mercadão', productName: 'Leite Integral Betânia 1L', price: 5.39, isAvailable: true },
+      { supermarket: 'CenterBox', productName: 'Leite Betânia UHT Integral 1L', price: 5.49, isAvailable: true },
+      { supermarket: 'Lagoa', productName: 'Leite Integral Betânia 1L', price: 5.59, isAvailable: true },
+      { supermarket: 'Frangolândia', productName: 'Leite Betânia Integral 1L', price: 5.69, isAvailable: true },
+      { supermarket: 'Guará', productName: 'Leite UHT Betânia Integral 1L', price: 6.19, isAvailable: true },
+      { supermarket: 'São Luiz', productName: 'Leite Integral Betânia 1L', price: 6.39, isAvailable: true },
+    ],
+  },
+  {
+    id: 'market-2',
+    name: 'Café Santa Clara Vácuo 250g',
+    category: 'Mercearia',
+    createdAt: '2026-09-01T10:00:00.000Z',
+    lowestPrice: 10.49,
+    cheapestSupermarket: 'Atacadão',
+    comparisons: [
+      { supermarket: 'Atacadão', productName: 'Café Torrado e Moído Santa Clara Vácuo 250g', price: 10.49, isAvailable: true },
+      { supermarket: 'Mercadão', productName: 'Café Santa Clara Vácuo 250g', price: 10.89, isAvailable: true },
+      { supermarket: 'CenterBox', productName: 'Café Tradicional Santa Clara 250g', price: 10.99, isAvailable: true },
+      { supermarket: 'Lagoa', productName: 'Café Santa Clara Vácuo 250g', price: 11.29, isAvailable: true },
+      { supermarket: 'Frangolândia', productName: 'Café Santa Clara Tradicional 250g', price: 11.49, isAvailable: true },
+      { supermarket: 'Guará', productName: 'Café Santa Clara Clássico Vácuo 250g', price: 12.19, isAvailable: true },
+      { supermarket: 'São Luiz', productName: 'Café Santa Clara Vácuo 250g', price: 12.59, isAvailable: true },
+    ],
+  },
+  {
+    id: 'market-3',
+    name: 'Queijo Coalho (Kg)',
+    category: 'Frios & Laticínios',
+    createdAt: '2026-09-01T10:00:00.000Z',
+    lowestPrice: 37.9,
+    cheapestSupermarket: 'Atacadão',
+    comparisons: [
+      { supermarket: 'Atacadão', productName: 'Queijo Coalho Cearense Peça/Fatiado Kg', price: 37.9, isAvailable: true },
+      { supermarket: 'Mercadão', productName: 'Queijo de Coalho Tradicional Kg', price: 39.5, isAvailable: true },
+      { supermarket: 'CenterBox', productName: 'Queijo Coalho Sertanejo Kg', price: 40.9, isAvailable: true },
+      { supermarket: 'Lagoa', productName: 'Queijo Coalho Especial Kg', price: 41.9, isAvailable: true },
+      { supermarket: 'Frangolândia', productName: 'Queijo Coalho do Sertão Kg', price: 42.5, isAvailable: true },
+      { supermarket: 'Guará', productName: 'Queijo Coalho Artesanal Selecionado Kg', price: 46.9, isAvailable: true },
+      { supermarket: 'São Luiz', productName: 'Queijo Coalho Premium São Luiz Kg', price: 48.9, isAvailable: true },
+    ],
+  },
+  {
+    id: 'market-4',
+    name: 'Cuscuz Flocão Maratá 500g',
+    category: 'Mercearia',
+    createdAt: '2026-09-01T10:00:00.000Z',
+    lowestPrice: 2.39,
+    cheapestSupermarket: 'Atacadão',
+    comparisons: [
+      { supermarket: 'Atacadão', productName: 'Flocão de Milho Maratá 500g', price: 2.39, isAvailable: true },
+      { supermarket: 'Mercadão', productName: 'Flocão Maratá 500g', price: 2.49, isAvailable: true },
+      { supermarket: 'CenterBox', productName: 'Farinha de Milho Flocão Maratá 500g', price: 2.59, isAvailable: true },
+      { supermarket: 'Lagoa', productName: 'Flocão Maratá 500g', price: 2.69, isAvailable: true },
+      { supermarket: 'Frangolândia', productName: 'Flocão de Milho Maratá 500g', price: 2.75, isAvailable: true },
+      { supermarket: 'Guará', productName: 'Flocão de Milho Maratá 500g', price: 2.99, isAvailable: true },
+      { supermarket: 'São Luiz', productName: 'Flocão de Milho Maratá 500g', price: 3.19, isAvailable: true },
+    ],
+  },
+];
+
 
