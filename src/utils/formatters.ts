@@ -81,6 +81,22 @@ export const parseDateMonthYear = (dateStr: string): { year: number; month: numb
 export const YEARS_UP_TO_2030 = [2024, 2025, 2026, 2027, 2028, 2029, 2030] as const;
 
 /**
+ * Retorna o mês e ano seguinte ao mês corrente para abertura do Orçamento Mensal.
+ * Exemplo: Se estamos no mês de outubro (mês calendário 9), retorna novembro (mês 10).
+ */
+export const getNextMonthBudget = (
+  baseDate: Date = new Date()
+): { year: number; month: number } => {
+  const calYear = baseDate.getFullYear();
+  const calMonth = baseDate.getMonth();
+  const nextDate = new Date(calYear, calMonth + 1, 1);
+  return {
+    year: nextDate.getFullYear(),
+    month: nextDate.getMonth(),
+  };
+};
+
+/**
  * Retorna o mês e ano ativo da fatura dos cartões de crédito.
  * Regra do sistema: No card do cartão o mês atual é sempre o mês seguinte ao mês calendário atual.
  * Exemplo: Se estamos em setembro (mês calendário 8), o mês atual da fatura do cartão é outubro (mês 9).

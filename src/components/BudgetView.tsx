@@ -33,6 +33,7 @@ import {
   formatDateDisplay,
   MONTH_NAMES,
   parseDateMonthYear,
+  getNextMonthBudget,
 } from '../utils/formatters';
 import {
   isCardTransaction,
@@ -44,6 +45,8 @@ import { AddTagModal } from './AddTagModal';
 import { ShowCreditCardsModal } from './ShowCreditCardsModal';
 
 interface BudgetViewProps {
+  initialYear?: number;
+  initialMonth?: number;
   transactions: Transaction[];
   tags: TagItem[];
   cards: CreditCard[];
@@ -67,6 +70,8 @@ interface BudgetViewProps {
 }
 
 export const BudgetView: React.FC<BudgetViewProps> = ({
+  initialYear,
+  initialMonth,
   transactions,
   tags,
   cards,
@@ -83,10 +88,19 @@ export const BudgetView: React.FC<BudgetViewProps> = ({
   onNavigateToCardsTab,
   onToggleCardPaid,
 }) => {
-  // Current month state (defaults to September 2026 as per environment metadata or current date)
-  const [selectedYear, setSelectedYear] = useState<number>(2026);
-  const [selectedMonth, setSelectedMonth] = useState<number>(8); // 8 is September (0-indexed)
+  // Current month state (defaults to next month as per rule: "quando clicar no menu orçamento mensal, o sistema vai abrir sempre no mês seguinte")
+  const defaultNextMonth = useMemo(() => getNextMonthBudget(), []);
+  const [selectedYear, setSelectedYear] = useState<number>(() => initialYear ?? defaultNextMonth.year);
+  const [selectedMonth, setSelectedMonth] = useState<number>(() => initialMonth ?? defaultNextMonth.month);
   const [viewAllMonths, setViewAllMonths] = useState<boolean>(false);
+
+  useEffect(() => {
+    if (initialYear !== undefined && initialMonth !== undefined) {
+      setSelectedYear(initialYear);
+      setSelectedMonth(initialMonth);
+      setViewAllMonths(false);
+    }
+  }, [initialYear, initialMonth]);
 
   // Sorting state (default: date descending)
   const [sortField, setSortField] = useState<SortField>('date');
@@ -275,9 +289,16 @@ export const BudgetView: React.FC<BudgetViewProps> = ({
               <Calendar className="w-5 h-5" />
             </div>
             <div>
-              <span className="text-xs font-semibold text-zinc-400 uppercase tracking-wider block">
-                Período Orçamentário
-              </span>
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-semibold text-zinc-400 uppercase tracking-wider block">
+                  Período Orçamentário
+                </span>
+                {selectedYear === defaultNextMonth.year && selectedMonth === defaultNextMonth.month && (
+                  <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-[#00ff7f]/15 text-[#00ff7f] border border-[#00ff7f]/30">
+                    Mês Seguinte
+                  </span>
+                )}
+              </div>
               <h2 className="text-xl sm:text-2xl font-black text-white capitalize">
                 {MONTH_NAMES[selectedMonth]} <span className="text-[#00ff7f]">{selectedYear}</span>
               </h2>

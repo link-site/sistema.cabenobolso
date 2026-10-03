@@ -13,14 +13,27 @@ import { LoginScreen } from './components/LoginScreen';
 import { AccessDeniedScreen } from './components/AccessDeniedScreen';
 import { AuthorizedEmailsModal } from './components/AuthorizedEmailsModal';
 import { RotateCcw, Cloud, ShieldCheck } from 'lucide-react';
+import { getNextMonthBudget } from './utils/formatters';
 
 function MainApp() {
   const { user, loading: authLoading } = useAuth();
   const { isAuthorized, isCheckingAccess, isAdmin } = useAccessControl();
   const [activeTab, setActiveTab] = useState<MenuTab>('dashboard');
+  const [targetBudgetMonth, setTargetBudgetMonth] = useState<{ year: number; month: number } | null>(null);
+  const [budgetNavKey, setBudgetNavKey] = useState<number>(0);
   const [isAddCardModalOpen, setIsAddCardModalOpen] = useState(false);
   const [isWhitelistModalOpen, setIsWhitelistModalOpen] = useState(false);
   const [guestMode, setGuestMode] = useState(false);
+
+  const handleTabChange = (tab: MenuTab) => {
+    if (tab === 'orcamento') {
+      // Regra: quando clicar no menu orçamento mensal, o sistema vai abrir sempre no mês seguinte
+      const nextMonth = getNextMonthBudget();
+      setTargetBudgetMonth(nextMonth);
+      setBudgetNavKey((prev) => prev + 1);
+    }
+    setActiveTab(tab);
+  };
 
   const {
     transactions,
@@ -83,7 +96,7 @@ function MainApp() {
       {/* Sidebar Navigation */}
       <Sidebar
         activeTab={activeTab}
-        onTabChange={setActiveTab}
+        onTabChange={handleTabChange}
         isSyncing={isSyncing}
         onOpenLoginModal={() => setGuestMode(false)}
         onOpenWhitelistModal={() => setIsWhitelistModalOpen(true)}
@@ -105,6 +118,8 @@ function MainApp() {
                   cards={cards}
                   cardPurchases={cardPurchases}
                   onNavigateToMonth={(year, month) => {
+                    setTargetBudgetMonth({ year, month });
+                    setBudgetNavKey((prev) => prev + 1);
                     setActiveTab('orcamento');
                   }}
                 />
@@ -112,6 +127,9 @@ function MainApp() {
 
               {activeTab === 'orcamento' && (
                 <BudgetView
+                  key={budgetNavKey}
+                  initialYear={targetBudgetMonth?.year}
+                  initialMonth={targetBudgetMonth?.month}
                   transactions={transactions}
                   tags={tags}
                   cards={cards}
