@@ -9,6 +9,7 @@ import { CreditCardsView } from './components/CreditCardsView';
 import { DashboardView } from './components/DashboardView';
 import { ReportsView } from './components/ReportsView';
 import { MercadoView } from './components/MercadoView';
+import { TelegramBotView } from './components/TelegramBotView';
 import { LoginScreen } from './components/LoginScreen';
 import { AccessDeniedScreen } from './components/AccessDeniedScreen';
 import { AuthorizedEmailsModal } from './components/AuthorizedEmailsModal';
@@ -64,6 +65,8 @@ function MainApp() {
     addMarketItem,
     updateMarketItem,
     deleteMarketItem,
+    telegramConfig,
+    updateTelegramConfig,
   } = useFirestoreFinance();
 
   const handleOpenAddCardModal = () => {
@@ -145,6 +148,8 @@ function MainApp() {
                   onOpenAddCardModal={handleOpenAddCardModal}
                   onNavigateToCardsTab={() => setActiveTab('cartoes')}
                   onToggleCardPaid={toggleCardPaid}
+                  onNavigateToTelegram={() => setActiveTab('telegram')}
+                  telegramConfig={telegramConfig}
                 />
               )}
 
@@ -163,6 +168,25 @@ function MainApp() {
                   onUpdateCardPurchaseGroup={updateCardPurchaseGroup}
                   isAddModalOpen={isAddCardModalOpen}
                   setIsAddModalOpen={setIsAddCardModalOpen}
+                  onNavigateToTelegram={() => setActiveTab('telegram')}
+                  telegramConfig={telegramConfig}
+                />
+              )}
+
+              {activeTab === 'telegram' && (
+                <TelegramBotView
+                  transactions={transactions}
+                  cards={cards}
+                  cardPurchases={cardPurchases}
+                  config={telegramConfig}
+                  onSaveConfig={updateTelegramConfig}
+                  onNavigateToBudget={() => {
+                    const nextMonth = getNextMonthBudget();
+                    setTargetBudgetMonth(nextMonth);
+                    setBudgetNavKey((prev) => prev + 1);
+                    setActiveTab('orcamento');
+                  }}
+                  onNavigateToCards={() => setActiveTab('cartoes')}
                 />
               )}
 

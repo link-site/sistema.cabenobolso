@@ -43,6 +43,8 @@ import {
 import { AddTransactionModal } from './AddTransactionModal';
 import { AddTagModal } from './AddTagModal';
 import { ShowCreditCardsModal } from './ShowCreditCardsModal';
+import { TelegramBotConfig } from '../types';
+import { Send } from 'lucide-react';
 
 interface BudgetViewProps {
   initialYear?: number;
@@ -67,6 +69,8 @@ interface BudgetViewProps {
   onOpenAddCardModal: () => void;
   onNavigateToCardsTab: () => void;
   onToggleCardPaid: (id: string) => void;
+  onNavigateToTelegram?: () => void;
+  telegramConfig?: TelegramBotConfig;
 }
 
 export const BudgetView: React.FC<BudgetViewProps> = ({
@@ -87,6 +91,8 @@ export const BudgetView: React.FC<BudgetViewProps> = ({
   onOpenAddCardModal,
   onNavigateToCardsTab,
   onToggleCardPaid,
+  onNavigateToTelegram,
+  telegramConfig,
 }) => {
   // Current month state (defaults to next month as per rule: "quando clicar no menu orçamento mensal, o sistema vai abrir sempre no mês seguinte")
   const defaultNextMonth = useMemo(() => getNextMonthBudget(), []);
@@ -369,6 +375,35 @@ export const BudgetView: React.FC<BudgetViewProps> = ({
           </div>
         </div>
       </div>
+
+      {/* Telegram Bot Notification Banner for Menu Orçamento */}
+      {onNavigateToTelegram && (
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-3.5 rounded-2xl bg-gradient-to-r from-sky-950/40 via-zinc-900 to-zinc-900 border border-sky-500/30 text-xs shadow-lg">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl bg-sky-500/10 border border-sky-500/30 flex items-center justify-center text-sky-400 shrink-0 shadow-md shadow-sky-500/15">
+              <Send className="w-4 h-4" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="font-bold text-white">Bot Telegram Diário do Cabe no Bolso</span>
+                <span className="text-[10px] font-black uppercase tracking-wider px-1.5 py-0.2 rounded bg-sky-500/15 text-sky-300 border border-sky-500/30">
+                  {telegramConfig?.enabled ? 'Ativo' : 'Disponível'}
+                </span>
+              </div>
+              <span className="text-zinc-400 text-[11px] block mt-0.5">
+                O bot avisa todo dia: <i className="text-zinc-300 font-medium">"Você tem esse valor disponivel para gastar: {formatCurrency(isOverBudget ? 0 : budgetDifference)}"</i> (Referência: {MONTH_NAMES[selectedMonth]})
+              </span>
+            </div>
+          </div>
+          <button
+            onClick={onNavigateToTelegram}
+            className="px-3.5 py-2 rounded-xl bg-sky-500 hover:bg-sky-400 text-white font-bold text-xs shrink-0 transition-all flex items-center gap-1.5 cursor-pointer shadow-md shadow-sky-500/20 active:scale-95"
+          >
+            <span>Configurar Bot</span>
+            <ChevronRight className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
 
       {/* TOP SUMMARY CARDS: Salario, Gastos, Disponível / Ultrapassou */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">

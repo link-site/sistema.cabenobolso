@@ -18,7 +18,7 @@ import {
   ShoppingBag,
   Layers,
 } from 'lucide-react';
-import { CreditCard, CardPurchase } from '../types';
+import { CreditCard, CardPurchase, TelegramBotConfig } from '../types';
 import {
   formatCurrency,
   formatDateDisplay,
@@ -29,6 +29,7 @@ import {
 import { AddCreditCardModal } from './AddCreditCardModal';
 import { CardDetailView } from './CardDetailView';
 import { AddCardPurchaseModal } from './AddCardPurchaseModal';
+import { Send } from 'lucide-react';
 
 interface CreditCardsViewProps {
   cards: CreditCard[];
@@ -64,6 +65,8 @@ interface CreditCardsViewProps {
   ) => void;
   isAddModalOpen: boolean;
   setIsAddModalOpen: (open: boolean) => void;
+  onNavigateToTelegram?: () => void;
+  telegramConfig?: TelegramBotConfig;
 }
 
 export const CreditCardsView: React.FC<CreditCardsViewProps> = ({
@@ -80,6 +83,8 @@ export const CreditCardsView: React.FC<CreditCardsViewProps> = ({
   onUpdateCardPurchaseGroup,
   isAddModalOpen,
   setIsAddModalOpen,
+  onNavigateToTelegram,
+  telegramConfig,
 }) => {
   const [editingCard, setEditingCard] = useState<CreditCard | null>(null);
   const [cardToDelete, setCardToDelete] = useState<CreditCard | null>(null);
@@ -191,12 +196,41 @@ export const CreditCardsView: React.FC<CreditCardsViewProps> = ({
             setEditingCard(null);
             setIsAddModalOpen(true);
           }}
-          className="flex items-center gap-2 px-5 py-3 rounded-xl bg-[#00ff7f] hover:bg-[#10ef80] text-black font-extrabold text-xs sm:text-sm uppercase tracking-wider transition-all shadow-lg shadow-[#00ff7f]/25 hover:scale-[1.02]"
+          className="flex items-center gap-2 px-5 py-3 rounded-xl bg-[#00ff7f] hover:bg-[#10ef80] text-black font-extrabold text-xs sm:text-sm uppercase tracking-wider transition-all shadow-lg shadow-[#00ff7f]/25 hover:scale-[1.02] cursor-pointer"
         >
           <Plus className="w-4 h-4 stroke-[3]" />
           <span>Adicionar Cartão de Crédito</span>
         </button>
       </div>
+
+      {/* Telegram Bot Quick Notification Banner */}
+      {onNavigateToTelegram && (
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-3.5 rounded-2xl bg-gradient-to-r from-sky-950/40 via-zinc-900 to-zinc-900 border border-sky-500/30 text-xs shadow-lg">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl bg-sky-500/10 border border-sky-500/30 flex items-center justify-center text-sky-400 shrink-0 shadow-md shadow-sky-500/15">
+              <Send className="w-4 h-4" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="font-bold text-white">Bot Telegram Diário do Cabe no Bolso</span>
+                <span className="text-[10px] font-black uppercase tracking-wider px-1.5 py-0.2 rounded bg-sky-500/15 text-sky-300 border border-sky-500/30">
+                  {telegramConfig?.enabled ? 'Ativo' : 'Disponível'}
+                </span>
+              </div>
+              <span className="text-zinc-400 text-[11px] block mt-0.5">
+                Receba todo dia no Telegram: <i className="text-zinc-300 font-medium">"Você tem esse valor disponível para gastar: {formatCurrency(totalAvailable)}"</i>
+              </span>
+            </div>
+          </div>
+          <button
+            onClick={onNavigateToTelegram}
+            className="px-3.5 py-2 rounded-xl bg-sky-500 hover:bg-sky-400 text-white font-bold text-xs shrink-0 transition-all flex items-center gap-1.5 cursor-pointer shadow-md shadow-sky-500/20 active:scale-95"
+          >
+            <span>Configurar Bot</span>
+            <ArrowRight className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
 
       {/* Cards Overview Stats */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">

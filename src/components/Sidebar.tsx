@@ -14,6 +14,7 @@ import {
   X,
   ChevronRight,
   Sparkles,
+  Send,
 } from 'lucide-react';
 import { MenuTab } from '../types';
 import { useAuth } from '../context/AuthContext';
@@ -57,6 +58,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
       label: 'Cartões de Crédito',
       desc: 'Faturas & Limites',
       icon: CreditCard,
+    },
+    {
+      id: 'telegram' as MenuTab,
+      label: 'Bot Telegram',
+      desc: 'Avisos da Fatura Diários',
+      icon: Send,
+      badge: 'NOVO',
     },
     {
       id: 'relatorios' as MenuTab,
@@ -148,9 +156,22 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       }`}
                     />
                     <div className="min-w-0">
-                      <p className={`text-sm leading-tight truncate ${isActive ? 'font-bold' : 'font-semibold'}`}>
-                        {item.label}
-                      </p>
+                      <div className="flex items-center gap-1.5">
+                        <p className={`text-sm leading-tight truncate ${isActive ? 'font-bold' : 'font-semibold'}`}>
+                          {item.label}
+                        </p>
+                        {item.badge && (
+                          <span
+                            className={`text-[9px] font-black uppercase tracking-wider px-1.5 py-0.2 rounded shrink-0 ${
+                              isActive
+                                ? 'bg-black text-[#00ff7f]'
+                                : 'bg-[#00ff7f]/15 text-[#00ff7f] border border-[#00ff7f]/30'
+                            }`}
+                          >
+                            {item.badge}
+                          </span>
+                        )}
+                      </div>
                       <p
                         className={`text-[11px] truncate mt-0.5 ${
                           isActive ? 'text-zinc-900/80 font-medium' : 'text-zinc-400'

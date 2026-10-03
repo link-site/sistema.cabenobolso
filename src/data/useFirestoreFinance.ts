@@ -10,10 +10,11 @@ import {
   getDocs,
   query,
   where,
+  setDoc,
 } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { useAuth } from '../context/AuthContext';
-import { Transaction, TagItem, CreditCard, CardPurchase, MarketItem } from '../types';
+import { Transaction, TagItem, CreditCard, CardPurchase, MarketItem, TelegramBotConfig } from '../types';
 import {
   DEFAULT_TAGS,
   INITIAL_TRANSACTIONS,
@@ -23,6 +24,7 @@ import {
 } from './initialData';
 import { buildClampedDate, parseDateMonthYear } from '../utils/formatters';
 import { isCardTransaction, getCardInvoiceForMonthYear } from '../utils/creditCardSync';
+import { calculateTelegramBudgetSummary, buildTelegramMessage } from '../utils/telegramFinance';
 
 const LOCAL_STORAGE_KEYS = {
   TRANSACTIONS: 'cabe_no_bolso_transactions_v1',
@@ -30,6 +32,16 @@ const LOCAL_STORAGE_KEYS = {
   CARDS: 'cabe_no_bolso_cards_v1',
   CARD_PURCHASES: 'cabe_no_bolso_card_purchases_v1',
   MARKET_ITEMS: 'cabe_no_bolso_market_items_v1',
+  TELEGRAM: 'cabe_no_bolso_telegram_v1',
+};
+
+export const DEFAULT_TELEGRAM_CONFIG: TelegramBotConfig = {
+  botToken: '',
+  chatId: '',
+  chatName: '',
+  enabled: false,
+  scheduledTime: '09:00',
+  messageTemplate: '',
 };
 
 export function useFirestoreFinance() {
@@ -40,6 +52,7 @@ export function useFirestoreFinance() {
   const [cards, setCards] = useState<CreditCard[]>([]);
   const [cardPurchases, setCardPurchases] = useState<CardPurchase[]>([]);
   const [marketItems, setMarketItems] = useState<MarketItem[]>([]);
+  const [telegramConfig, setTelegramConfig] = useState<TelegramBotConfig>(DEFAULT_TELEGRAM_CONFIG);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [isSyncing, setIsSyncing] = useState<boolean>(false);
   const [hasInitializedFirestore, setHasInitializedFirestore] = useState<boolean>(false);
@@ -60,6 +73,7 @@ export function useFirestoreFinance() {
         const savedCards = localStorage.getItem(LOCAL_STORAGE_KEYS.CARDS);
         const savedPurchases = localStorage.getItem(LOCAL_STORAGE_KEYS.CARD_PURCHASES);
         const savedMarket = localStorage.getItem(LOCAL_STORAGE_KEYS.MARKET_ITEMS);
+        const savedTelegram = localStorage.getItem(LOCAL_STORAGE_KEYS.TELEGRAM);
 
         setTransactions(savedTx ? JSON.parse(savedTx) : INITIAL_TRANSACTIONS);
         setTags(savedTags ? JSON.parse(savedTags) : DEFAULT_TAGS);
@@ -67,6 +81,7 @@ export function useFirestoreFinance() {
         setCardPurchases(savedPurchases ? JSON.parse(savedPurchases) : INITIAL_CARD_PURCHASES);
         const parsedMarket = savedMarket ? JSON.parse(savedMarket) : null;
         setMarketItems(parsedMarket && parsedMarket.length > 0 ? parsedMarket : DEFAULT_MARKET_ITEMS);
+        setTelegramConfig(savedTelegram ? JSON.parse(savedTelegram) : DEFAULT_TELEGRAM_CONFIG);
       } catch (err) {
         console.error('Failed to load local storage:', err);
         setTransactions(INITIAL_TRANSACTIONS);
@@ -74,6 +89,7 @@ export function useFirestoreFinance() {
         setCards(INITIAL_CARDS);
         setCardPurchases(INITIAL_CARD_PURCHASES);
         setMarketItems(DEFAULT_MARKET_ITEMS);
+        setTelegramConfig(DEFAULT_TELEGRAM_CONFIG);
       }
       setIsLoading(false);
       return;
@@ -300,7 +316,47 @@ export function useFirestoreFinance() {
       }
     );
 
-    unsubscribesRef.current = [unsubTx, unsubCards, unsubPurchases, unsubTags, unsubMarket];
+    // Listen to Telegram Settings
+    const telegramDocRef = doc(db, 'users', userId, 'settings', 'telegram');
+    const unsubTelegram = onSnapshot(
+      telegramDocRef,
+      (docSnap) => {
+        if (docSnap.exists()) {
+          const data = docSnap.data();
+          setTelegramConfig({
+            botToken: data.botToken || '',
+            chatId: data.chatId || '',
+            chatName: data.chatName || '',
+            enabled: Boolean(data.enabled),
+            scheduledTime: data.scheduledTime || '09:00',
+            messageTemplate: data.messageTemplate || '',
+            lastSentDate: data.lastSentDate,
+            lastSentTimestamp: data.lastSentTimestamp,
+            lastSentStatus: data.lastSentStatus,
+            lastSentError: data.lastSentError,
+          });
+        } else {
+          // Check local storage fallback
+          const savedTelegram = localStorage.getItem(LOCAL_STORAGE_KEYS.TELEGRAM);
+          if (savedTelegram) {
+            try {
+              const parsed = JSON.parse(savedTelegram);
+              setTelegramConfig(parsed);
+              setDoc(telegramDocRef, parsed, { merge: true }).catch(() => {});
+            } catch (e) {
+              setTelegramConfig(DEFAULT_TELEGRAM_CONFIG);
+            }
+          } else {
+            setTelegramConfig(DEFAULT_TELEGRAM_CONFIG);
+          }
+        }
+      },
+      (error) => {
+        console.error('Firestore Telegram listener error:', error);
+      }
+    );
+
+    unsubscribesRef.current = [unsubTx, unsubCards, unsubPurchases, unsubTags, unsubMarket, unsubTelegram];
 
     return () => {
       unsubscribesRef.current.forEach((unsub) => unsub());
@@ -315,8 +371,9 @@ export function useFirestoreFinance() {
       localStorage.setItem(LOCAL_STORAGE_KEYS.CARDS, JSON.stringify(cards));
       localStorage.setItem(LOCAL_STORAGE_KEYS.CARD_PURCHASES, JSON.stringify(cardPurchases));
       localStorage.setItem(LOCAL_STORAGE_KEYS.MARKET_ITEMS, JSON.stringify(marketItems));
+      localStorage.setItem(LOCAL_STORAGE_KEYS.TELEGRAM, JSON.stringify(telegramConfig));
     }
-  }, [transactions, tags, cards, cardPurchases, marketItems, user]);
+  }, [transactions, tags, cards, cardPurchases, marketItems, telegramConfig, user]);
 
   // Transaction Actions
   const addTransaction = async (transaction: Omit<Transaction, 'id'>) => {
@@ -1230,12 +1287,87 @@ export function useFirestoreFinance() {
     }
   };
 
+  // Telegram Config Actions
+  const updateTelegramConfig = async (updated: Partial<TelegramBotConfig>) => {
+    const merged: TelegramBotConfig = {
+      ...telegramConfig,
+      ...updated,
+    };
+    setTelegramConfig(merged);
+    localStorage.setItem(LOCAL_STORAGE_KEYS.TELEGRAM, JSON.stringify(merged));
+
+    if (user) {
+      setIsSyncing(true);
+      try {
+        const docRef = doc(db, 'users', user.uid, 'settings', 'telegram');
+        await setDoc(docRef, merged, { merge: true });
+      } catch (err) {
+        console.error('Error saving telegram config to firestore:', err);
+      } finally {
+        setIsSyncing(false);
+      }
+    }
+
+    // Registra/atualiza agendamento no servidor se houver credenciais
+    if (merged.botToken && merged.chatId) {
+      try {
+        const summary = calculateTelegramBudgetSummary(transactions, cards, cardPurchases);
+        const msg = buildTelegramMessage(summary, merged.messageTemplate);
+        await fetch('/api/telegram/register-schedule', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            userId: user ? user.uid : 'default_user',
+            botToken: merged.botToken,
+            chatId: merged.chatId,
+            scheduledTime: merged.scheduledTime,
+            enabled: merged.enabled,
+            messageText: msg,
+          }),
+        });
+      } catch (scheduleErr) {
+        console.warn('Falha ao sincronizar agendamento no servidor:', scheduleErr);
+      }
+    }
+  };
+
+  // Mantém a mensagem do agendador do servidor atualizada conforme o orçamento (salários e gastos) muda
+  useEffect(() => {
+    if (telegramConfig.enabled && telegramConfig.botToken && telegramConfig.chatId) {
+      const summary = calculateTelegramBudgetSummary(transactions, cards, cardPurchases);
+      const msg = buildTelegramMessage(summary, telegramConfig.messageTemplate);
+      fetch('/api/telegram/register-schedule', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userId: user ? user.uid : 'default_user',
+          botToken: telegramConfig.botToken,
+          chatId: telegramConfig.chatId,
+          scheduledTime: telegramConfig.scheduledTime,
+          enabled: telegramConfig.enabled,
+          messageText: msg,
+        }),
+      }).catch(() => {});
+    }
+  }, [
+    transactions,
+    cards,
+    cardPurchases,
+    telegramConfig.enabled,
+    telegramConfig.botToken,
+    telegramConfig.chatId,
+    telegramConfig.scheduledTime,
+    telegramConfig.messageTemplate,
+    user,
+  ]);
+
   return {
     transactions,
     tags,
     cards,
     cardPurchases,
     marketItems,
+    telegramConfig,
     isLoading,
     isSyncing,
     addTransaction,
@@ -1260,5 +1392,6 @@ export function useFirestoreFinance() {
     addMarketItem,
     updateMarketItem,
     deleteMarketItem,
+    updateTelegramConfig,
   };
 }

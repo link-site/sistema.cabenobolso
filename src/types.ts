@@ -1,4 +1,4 @@
-export type MenuTab = 'dashboard' | 'orcamento' | 'cartoes' | 'relatorios' | 'mercado';
+export type MenuTab = 'dashboard' | 'orcamento' | 'cartoes' | 'relatorios' | 'mercado' | 'telegram';
 
 export type TransactionType = 'salario' | 'gasto';
 
@@ -85,4 +85,17 @@ export interface MarketItem {
   lowestPrice?: number;
   cheapestSupermarket?: string;
   comparisons?: MarketItemComparison[];
+}
+
+export interface TelegramBotConfig {
+  botToken: string;
+  chatId: string;
+  chatName?: string;
+  enabled: boolean;
+  scheduledTime: string; // "HH:MM", ex: "09:00"
+  messageTemplate?: string;
+  lastSentDate?: string; // "YYYY-MM-DD"
+  lastSentTimestamp?: string;
+  lastSentStatus?: 'success' | 'error';
+  lastSentError?: string;
 }

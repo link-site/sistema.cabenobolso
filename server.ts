@@ -459,6 +459,277 @@ Responda ESTRITAMENTE em formato JSON com a seguinte estrutura:
     }
   });
 
+  // =========================================================================
+  // TELEGRAM BOT INTEGRATION & DAILY AUTOMATED SCHEDULER
+  // =========================================================================
+
+  interface RegisteredTelegramSchedule {
+    userId: string;
+    botToken: string;
+    chatId: string;
+    scheduledTime: string; // "HH:MM"
+    enabled: boolean;
+    messageText: string;
+    lastSentDate?: string;
+    lastSentTimestamp?: string;
+    lastSentStatus?: 'success' | 'error';
+    lastSentError?: string;
+  }
+
+  const telegramSchedules = new Map<string, RegisteredTelegramSchedule>();
+
+  // Helper para obter hora e data no fuso de Fortaleza/Brasil (UTC-3)
+  function getBrazilTimeNow(): { timeStr: string; dateStr: string } {
+    const now = new Date();
+    const formatter = new Intl.DateTimeFormat('pt-BR', {
+      timeZone: 'America/Fortaleza',
+      hour12: false,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+    const parts = formatter.formatToParts(now);
+    const getVal = (type: string) => parts.find((p) => p.type === type)?.value || '00';
+
+    const timeStr = `${getVal('hour')}:${getVal('minute')}`;
+    const dateStr = `${getVal('year')}-${getVal('month')}-${getVal('day')}`;
+    return { timeStr, dateStr };
+  }
+
+  // 1. Detectar Chat ID automaticamente via getUpdates
+  app.post('/api/telegram/detect-chat-id', async (req, res) => {
+    try {
+      const { botToken } = req.body;
+      if (!botToken || typeof botToken !== 'string') {
+        return res.status(400).json({
+          success: false,
+          error: 'Informe o Token do Bot gerado pelo @BotFather.',
+        });
+      }
+
+      const cleanToken = botToken.trim();
+
+      // Primeiro valida o token chamando getMe
+      const meResponse = await fetch(`https://api.telegram.org/bot${cleanToken}/getMe`);
+      const meData = await meResponse.json();
+
+      if (!meData.ok) {
+        return res.status(400).json({
+          success: false,
+          error: `Token inválido ou não reconhecido pelo Telegram: ${meData.description || 'Verifique o token copiado do @BotFather'}.`,
+        });
+      }
+
+      const botInfo = meData.result;
+
+      // Agora busca as últimas mensagens enviadas para o bot
+      const updatesResponse = await fetch(`https://api.telegram.org/bot${cleanToken}/getUpdates?limit=20`);
+      const updatesData = await updatesResponse.json();
+
+      if (!updatesData.ok) {
+        return res.status(400).json({
+          success: false,
+          error: `Falha ao consultar mensagens: ${updatesData.description || 'Erro na API do Telegram'}.`,
+        });
+      }
+
+      const updates = updatesData.result || [];
+      if (updates.length === 0) {
+        return res.json({
+          success: false,
+          botUsername: botInfo.username,
+          botName: botInfo.first_name,
+          error: `O bot @${botInfo.username} foi validado, mas ainda não recebeu nenhuma mensagem sua.\n\n👉 Abra o seu Telegram, pesquise por @${botInfo.username}, clique em "Começar" (ou envie "Oi") e depois clique em "Detectar Meu Chat ID" novamente!`,
+        });
+      }
+
+      // Procura a última interação com chat id válido
+      let detectedChat: any = null;
+      for (let i = updates.length - 1; i >= 0; i--) {
+        const u = updates[i];
+        const chat = u.message?.chat || u.edited_message?.chat || u.channel_post?.chat || u.my_chat_member?.chat;
+        if (chat && chat.id) {
+          detectedChat = chat;
+          break;
+        }
+      }
+
+      if (!detectedChat) {
+        return res.json({
+          success: false,
+          botUsername: botInfo.username,
+          botName: botInfo.first_name,
+          error: `Nenhum chat de usuário identificado nas mensagens recebidas. Envie uma mensagem direta para @${botInfo.username} no Telegram.`,
+        });
+      }
+
+      return res.json({
+        success: true,
+        chatId: String(detectedChat.id),
+        chatName: detectedChat.first_name || detectedChat.title || detectedChat.username || 'Meu Telegram',
+        chatUsername: detectedChat.username || null,
+        botUsername: botInfo.username,
+        botName: botInfo.first_name,
+      });
+    } catch (err: any) {
+      console.error('Erro ao detectar chat id do Telegram:', err);
+      return res.status(500).json({
+        success: false,
+        error: `Erro ao conectar com a API do Telegram: ${err.message || 'Verifique sua conexão'}.`,
+      });
+    }
+  });
+
+  // 2. Disparar mensagem avulsa ou de teste no Telegram
+  app.post('/api/telegram/send-message', async (req, res) => {
+    try {
+      const { botToken, chatId, message, parseMode = 'Markdown' } = req.body;
+
+      if (!botToken || !chatId || !message) {
+        return res.status(400).json({
+          success: false,
+          error: 'Parâmetros obrigatórios ausentes (botToken, chatId, message).',
+        });
+      }
+
+      const response = await fetch(`https://api.telegram.org/bot${botToken.trim()}/sendMessage`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          chat_id: String(chatId).trim(),
+          text: message,
+          parse_mode: parseMode,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!data.ok) {
+        let friendlyErr = data.description || 'Erro ao enviar mensagem';
+        if (data.description?.includes('chat not found')) {
+          friendlyErr = 'Chat não encontrado. Você já iniciou a conversa com o bot no Telegram?';
+        } else if (data.description?.includes('bot was blocked')) {
+          friendlyErr = 'O bot foi bloqueado pelo usuário no Telegram.';
+        } else if (data.description?.includes('Unauthorized')) {
+          friendlyErr = 'Token de bot inválido ou expirado.';
+        }
+        return res.status(400).json({
+          success: false,
+          error: friendlyErr,
+          rawError: data.description,
+        });
+      }
+
+      return res.json({
+        success: true,
+        messageId: data.result?.message_id,
+        sentAt: new Date().toISOString(),
+      });
+    } catch (err: any) {
+      console.error('Erro ao enviar mensagem no Telegram:', err);
+      return res.status(500).json({
+        success: false,
+        error: `Falha na requisição para o Telegram: ${err.message}`,
+      });
+    }
+  });
+
+  // 3. Registrar ou atualizar agendamento diário no servidor
+  app.post('/api/telegram/register-schedule', (req, res) => {
+    try {
+      const { userId = 'default_user', botToken, chatId, scheduledTime, enabled, messageText } = req.body;
+
+      if (!botToken || !chatId || !scheduledTime) {
+        return res.status(400).json({
+          success: false,
+          error: 'Parâmetros obrigatórios ausentes para o agendamento.',
+        });
+      }
+
+      const existing = telegramSchedules.get(userId);
+      const schedule: RegisteredTelegramSchedule = {
+        userId,
+        botToken: botToken.trim(),
+        chatId: String(chatId).trim(),
+        scheduledTime: scheduledTime.trim(),
+        enabled: Boolean(enabled),
+        messageText: messageText || 'Você tem esse valor disponivel para gastar',
+        lastSentDate: existing?.lastSentDate,
+        lastSentTimestamp: existing?.lastSentTimestamp,
+        lastSentStatus: existing?.lastSentStatus,
+        lastSentError: existing?.lastSentError,
+      };
+
+      telegramSchedules.set(userId, schedule);
+      console.log(`[Telegram Scheduler] Agendamento registrado para ${userId} às ${scheduledTime} (Ativo: ${enabled})`);
+
+      return res.json({
+        success: true,
+        schedule,
+      });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  // 4. Consultar status do agendador
+  app.get('/api/telegram/schedule-status/:userId', (req, res) => {
+    const { userId } = req.params;
+    const schedule = telegramSchedules.get(userId);
+    const { timeStr, dateStr } = getBrazilTimeNow();
+    return res.json({
+      success: true,
+      serverTime: timeStr,
+      serverDate: dateStr,
+      schedule: schedule || null,
+    });
+  });
+
+  // 5. Rotina de disparo diário no servidor (Verifica a cada 30 segundos)
+  setInterval(async () => {
+    if (telegramSchedules.size === 0) return;
+
+    const { timeStr, dateStr } = getBrazilTimeNow();
+
+    for (const [userId, item] of telegramSchedules.entries()) {
+      if (!item.enabled) continue;
+
+      // Se o horário atual bate com o horário configurado e ainda não foi enviado hoje
+      if (item.scheduledTime === timeStr && item.lastSentDate !== dateStr) {
+        console.log(`[Telegram Scheduler] Disparando aviso diário para ${userId} (${item.chatId}) às ${timeStr}`);
+        try {
+          const response = await fetch(`https://api.telegram.org/bot${item.botToken}/sendMessage`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              chat_id: item.chatId,
+              text: item.messageText,
+              parse_mode: 'Markdown',
+            }),
+          });
+          const result = await response.json();
+          if (result.ok) {
+            item.lastSentDate = dateStr;
+            item.lastSentTimestamp = new Date().toISOString();
+            item.lastSentStatus = 'success';
+            item.lastSentError = undefined;
+            console.log(`[Telegram Scheduler] Mensagem enviada com sucesso para ${userId}`);
+          } else {
+            item.lastSentStatus = 'error';
+            item.lastSentError = result.description || 'Erro retornado pela API do Telegram';
+            console.error(`[Telegram Scheduler] Falha ao enviar para ${userId}:`, result.description);
+          }
+        } catch (dispatchErr: any) {
+          item.lastSentStatus = 'error';
+          item.lastSentError = dispatchErr.message;
+          console.error(`[Telegram Scheduler] Exceção ao enviar para ${userId}:`, dispatchErr);
+        }
+      }
+    }
+  }, 30000);
+
   // Middleware global de erro do Express (garante SEMPRE resposta JSON em vez de HTML)
   app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
     if (err) {
