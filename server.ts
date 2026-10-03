@@ -1,5 +1,6 @@
 import express from 'express';
 import path from 'path';
+import fs from 'fs';
 import { createServer as createViteServer } from 'vite';
 import dotenv from 'dotenv';
 import { GoogleGenAI, Type } from '@google/genai';
@@ -477,6 +478,34 @@ Responda ESTRITAMENTE em formato JSON com a seguinte estrutura:
   }
 
   const telegramSchedules = new Map<string, RegisteredTelegramSchedule>();
+  const SCHEDULES_FILE = path.join(process.cwd(), 'telegram_schedules.json');
+
+  function loadPersistedSchedules() {
+    try {
+      if (fs.existsSync(SCHEDULES_FILE)) {
+        const raw = fs.readFileSync(SCHEDULES_FILE, 'utf-8');
+        const list: RegisteredTelegramSchedule[] = JSON.parse(raw);
+        if (Array.isArray(list)) {
+          list.forEach((s) => telegramSchedules.set(s.userId, s));
+          console.log(`[Telegram Scheduler] ${list.length} agendamento(s) carregados do disco.`);
+        }
+      }
+    } catch (e) {
+      console.warn('[Telegram Scheduler] Falha ao ler agendamentos do disco:', e);
+    }
+  }
+
+  function savePersistedSchedules() {
+    try {
+      const list = Array.from(telegramSchedules.values());
+      fs.writeFileSync(SCHEDULES_FILE, JSON.stringify(list, null, 2), 'utf-8');
+    } catch (e) {
+      console.warn('[Telegram Scheduler] Falha ao salvar agendamentos no disco:', e);
+    }
+  }
+
+  // Carrega agendamentos salvos na inicialização do servidor
+  loadPersistedSchedules();
 
   // Helper para obter hora e data no fuso de Fortaleza/Brasil (UTC-3)
   function getBrazilTimeNow(): { timeStr: string; dateStr: string } {
@@ -498,18 +527,37 @@ Responda ESTRITAMENTE em formato JSON com a seguinte estrutura:
     return { timeStr, dateStr };
   }
 
+  // Helper para sanitizar token e chatId do Telegram
+  function cleanTelegramToken(raw: any): string {
+    if (!raw || typeof raw !== 'string') return '';
+    let token = raw.trim();
+    token = token.replace(/^["'\s]+|["'\s]+$/g, '');
+    token = token.replace(/^https?:\/\/api\.telegram\.org\/bot/i, '');
+    if (token.toLowerCase().startsWith('bot') && /^\d/.test(token.slice(3))) {
+      token = token.slice(3);
+    }
+    token = token.replace(/\/+$/, '');
+    return token.trim();
+  }
+
+  function cleanTelegramChatId(raw: any): string {
+    if (!raw) return '';
+    let id = String(raw).trim();
+    id = id.replace(/^["'\s]+|["'\s]+$/g, '');
+    return id;
+  }
+
   // 1. Detectar Chat ID automaticamente via getUpdates
   app.post('/api/telegram/detect-chat-id', async (req, res) => {
     try {
       const { botToken } = req.body;
-      if (!botToken || typeof botToken !== 'string') {
+      const cleanToken = cleanTelegramToken(botToken);
+      if (!cleanToken) {
         return res.status(400).json({
           success: false,
           error: 'Informe o Token do Bot gerado pelo @BotFather.',
         });
       }
-
-      const cleanToken = botToken.trim();
 
       // Primeiro valida o token chamando getMe
       const meResponse = await fetch(`https://api.telegram.org/bot${cleanToken}/getMe`);
@@ -525,8 +573,19 @@ Responda ESTRITAMENTE em formato JSON com a seguinte estrutura:
       const botInfo = meData.result;
 
       // Agora busca as últimas mensagens enviadas para o bot
-      const updatesResponse = await fetch(`https://api.telegram.org/bot${cleanToken}/getUpdates?limit=20`);
-      const updatesData = await updatesResponse.json();
+      let updatesResponse = await fetch(`https://api.telegram.org/bot${cleanToken}/getUpdates?limit=20`);
+      let updatesData = await updatesResponse.json();
+
+      // Se houver conflito de webhook pré-existente no bot, limpa o webhook
+      if (!updatesData.ok && updatesData.description?.includes('webhook')) {
+        try {
+          await fetch(`https://api.telegram.org/bot${cleanToken}/deleteWebhook?drop_pending_updates=false`);
+          updatesResponse = await fetch(`https://api.telegram.org/bot${cleanToken}/getUpdates?limit=20`);
+          updatesData = await updatesResponse.json();
+        } catch (whErr) {
+          console.warn('[Telegram] Falha ao resetar webhook:', whErr);
+        }
+      }
 
       if (!updatesData.ok) {
         return res.status(400).json({
@@ -541,7 +600,8 @@ Responda ESTRITAMENTE em formato JSON com a seguinte estrutura:
           success: false,
           botUsername: botInfo.username,
           botName: botInfo.first_name,
-          error: `O bot @${botInfo.username} foi validado, mas ainda não recebeu nenhuma mensagem sua.\n\n👉 Abra o seu Telegram, pesquise por @${botInfo.username}, clique em "Começar" (ou envie "Oi") e depois clique em "Detectar Meu Chat ID" novamente!`,
+          needInteraction: true,
+          error: `O bot @${botInfo.username} foi validado com sucesso, mas você ainda não enviou nenhuma mensagem para ele.\n\n👉 Abra o Telegram, pesquise por @${botInfo.username} (ou acesse https://t.me/${botInfo.username}), clique em "Começar" (ou envie "Oi") e depois clique em "Detectar Meu Chat ID" novamente!`,
         });
       }
 
@@ -561,6 +621,7 @@ Responda ESTRITAMENTE em formato JSON com a seguinte estrutura:
           success: false,
           botUsername: botInfo.username,
           botName: botInfo.first_name,
+          needInteraction: true,
           error: `Nenhum chat de usuário identificado nas mensagens recebidas. Envie uma mensagem direta para @${botInfo.username} no Telegram.`,
         });
       }
@@ -586,34 +647,52 @@ Responda ESTRITAMENTE em formato JSON com a seguinte estrutura:
   app.post('/api/telegram/send-message', async (req, res) => {
     try {
       const { botToken, chatId, message, parseMode = 'Markdown' } = req.body;
+      const cleanToken = cleanTelegramToken(botToken);
+      const cleanId = cleanTelegramChatId(chatId);
 
-      if (!botToken || !chatId || !message) {
+      if (!cleanToken || !cleanId || !message) {
         return res.status(400).json({
           success: false,
-          error: 'Parâmetros obrigatórios ausentes (botToken, chatId, message).',
+          error: 'Parâmetros obrigatórios ausentes (Token, Chat ID ou Mensagem).',
         });
       }
 
-      const response = await fetch(`https://api.telegram.org/bot${botToken.trim()}/sendMessage`, {
+      let response = await fetch(`https://api.telegram.org/bot${cleanToken}/sendMessage`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          chat_id: String(chatId).trim(),
+          chat_id: cleanId,
           text: message,
           parse_mode: parseMode,
         }),
       });
 
-      const data = await response.json();
+      let data = await response.json();
+
+      // Fallback: se falhar por formatação de markdown de caracteres especiais, reenvia sem parse_mode
+      if (!data.ok && data.description?.includes("can't parse entities")) {
+        console.warn('[Telegram] Erro de entidade Markdown, reenviando texto puro...');
+        response = await fetch(`https://api.telegram.org/bot${cleanToken}/sendMessage`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            chat_id: cleanId,
+            text: message,
+          }),
+        });
+        data = await response.json();
+      }
 
       if (!data.ok) {
         let friendlyErr = data.description || 'Erro ao enviar mensagem';
         if (data.description?.includes('chat not found')) {
-          friendlyErr = 'Chat não encontrado. Você já iniciou a conversa com o bot no Telegram?';
+          friendlyErr = cleanId.startsWith('@')
+            ? 'O Telegram não aceita @usuario para conversas privadas. Use o seu Chat ID numérico (ex: 123456789) detectado pelo botão "Detectar Meu Chat ID".'
+            : 'Chat não encontrado. Você já iniciou a conversa com o bot no Telegram enviando uma mensagem ("Oi")?';
         } else if (data.description?.includes('bot was blocked')) {
-          friendlyErr = 'O bot foi bloqueado pelo usuário no Telegram.';
+          friendlyErr = 'O bot foi bloqueado pelo usuário no seu Telegram.';
         } else if (data.description?.includes('Unauthorized')) {
-          friendlyErr = 'Token de bot inválido ou expirado.';
+          friendlyErr = 'Token de bot inválido ou expirado. Verifique o token fornecido pelo @BotFather.';
         }
         return res.status(400).json({
           success: false,
@@ -663,6 +742,7 @@ Responda ESTRITAMENTE em formato JSON com a seguinte estrutura:
       };
 
       telegramSchedules.set(userId, schedule);
+      savePersistedSchedules();
       console.log(`[Telegram Scheduler] Agendamento registrado para ${userId} às ${scheduledTime} (Ativo: ${enabled})`);
 
       return res.json({
@@ -715,15 +795,18 @@ Responda ESTRITAMENTE em formato JSON com a seguinte estrutura:
             item.lastSentTimestamp = new Date().toISOString();
             item.lastSentStatus = 'success';
             item.lastSentError = undefined;
+            savePersistedSchedules();
             console.log(`[Telegram Scheduler] Mensagem enviada com sucesso para ${userId}`);
           } else {
             item.lastSentStatus = 'error';
             item.lastSentError = result.description || 'Erro retornado pela API do Telegram';
+            savePersistedSchedules();
             console.error(`[Telegram Scheduler] Falha ao enviar para ${userId}:`, result.description);
           }
         } catch (dispatchErr: any) {
           item.lastSentStatus = 'error';
           item.lastSentError = dispatchErr.message;
+          savePersistedSchedules();
           console.error(`[Telegram Scheduler] Exceção ao enviar para ${userId}:`, dispatchErr);
         }
       }

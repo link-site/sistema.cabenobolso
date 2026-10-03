@@ -28,6 +28,12 @@ import {
   calculateTelegramBudgetSummary,
   buildTelegramMessage,
 } from '../utils/telegramFinance';
+import {
+  detectTelegramChatId,
+  sendTelegramMessage,
+  cleanTelegramToken,
+  cleanTelegramChatId,
+} from '../utils/telegramApi';
 import { formatCurrency } from '../utils/formatters';
 
 interface TelegramBotViewProps {
@@ -62,6 +68,8 @@ export const TelegramBotView: React.FC<TelegramBotViewProps> = ({
   const [isDetecting, setIsDetecting] = useState(false);
   const [detectError, setDetectError] = useState<string | null>(null);
   const [detectSuccess, setDetectSuccess] = useState<string | null>(null);
+  const [detectedBotUsername, setDetectedBotUsername] = useState<string | null>(null);
+  const [needInteraction, setNeedInteraction] = useState(false);
 
   const [isSendingTest, setIsSendingTest] = useState(false);
   const [testResult, setTestResult] = useState<{
@@ -94,40 +102,46 @@ export const TelegramBotView: React.FC<TelegramBotViewProps> = ({
 
   // Handle Detect Chat ID
   const handleDetectChatId = async () => {
-    if (!botToken.trim()) {
-      setDetectError('Por favor, informe o Token do Bot antes de detectar o Chat ID.');
+    const cleanToken = cleanTelegramToken(botToken);
+    if (!cleanToken) {
+      setDetectError('Por favor, informe o Token do Bot gerado pelo @BotFather antes de detectar o Chat ID.');
       return;
     }
+    setBotToken(cleanToken);
 
     setIsDetecting(true);
     setDetectError(null);
     setDetectSuccess(null);
+    setNeedInteraction(false);
 
     try {
-      const res = await fetch('/api/telegram/detect-chat-id', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ botToken: botToken.trim() }),
-      });
-      const data = await res.json();
+      const data = await detectTelegramChatId(cleanToken);
+
+      if (data.botUsername) {
+        setDetectedBotUsername(data.botUsername);
+      }
 
       if (data.success && data.chatId) {
         setChatId(String(data.chatId));
         const detectedName = data.chatName || data.chatUsername || 'Telegram';
         setChatName(detectedName);
         setDetectSuccess(`Chat ID detectado com sucesso: ${data.chatId} (${detectedName})`);
+        setNeedInteraction(false);
 
         // Auto-save the detected chatId
         await onSaveConfig({
-          botToken: botToken.trim(),
+          botToken: cleanToken,
           chatId: String(data.chatId),
           chatName: detectedName,
         });
       } else {
         setDetectError(data.error || 'Não foi possível encontrar mensagens recentes.');
+        if (data.needInteraction) {
+          setNeedInteraction(true);
+        }
       }
     } catch (err: any) {
-      setDetectError(`Erro na requisição: ${err.message}`);
+      setDetectError(`Erro na requisição: ${err.message || 'Verifique sua conexão'}`);
     } finally {
       setIsDetecting(false);
     }
@@ -135,7 +149,10 @@ export const TelegramBotView: React.FC<TelegramBotViewProps> = ({
 
   // Handle Send Test Message
   const handleSendTestMessage = async () => {
-    if (!botToken.trim() || !chatId.trim()) {
+    const cleanToken = cleanTelegramToken(botToken);
+    const cleanId = cleanTelegramChatId(chatId);
+
+    if (!cleanToken || !cleanId) {
       setTestResult({
         success: false,
         message: 'Preencha o Token do Bot e o Chat ID para poder testar o envio.',
@@ -143,27 +160,19 @@ export const TelegramBotView: React.FC<TelegramBotViewProps> = ({
       return;
     }
 
+    setBotToken(cleanToken);
+    setChatId(cleanId);
+
     setIsSendingTest(true);
     setTestResult(null);
 
     try {
-      const res = await fetch('/api/telegram/send-message', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          botToken: botToken.trim(),
-          chatId: chatId.trim(),
-          message: previewMessage,
-          parseMode: 'Markdown',
-        }),
-      });
-
-      const data = await res.json();
+      const data = await sendTelegramMessage(cleanToken, cleanId, previewMessage);
 
       if (data.success) {
         setTestResult({
           success: true,
-          message: 'Mensagem enviada com sucesso no seu Telegram! Verifique seu aplicativo.',
+          message: '🎉 Mensagem enviada com sucesso no seu Telegram! Verifique seu aplicativo.',
         });
         await onSaveConfig({
           lastSentDate: new Date().toISOString().split('T')[0],
@@ -184,7 +193,7 @@ export const TelegramBotView: React.FC<TelegramBotViewProps> = ({
     } catch (err: any) {
       setTestResult({
         success: false,
-        message: `Erro na comunicação: ${err.message}`,
+        message: `Erro na comunicação: ${err.message || 'Verifique sua conexão'}`,
       });
     } finally {
       setIsSendingTest(false);
@@ -473,9 +482,25 @@ export const TelegramBotView: React.FC<TelegramBotViewProps> = ({
 
               {/* Chat Detection Feedback */}
               {detectError && (
-                <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs flex items-start gap-2 whitespace-pre-line leading-relaxed">
-                  <AlertCircle className="w-4 h-4 shrink-0 text-amber-400 mt-0.5" />
-                  <div>{detectError}</div>
+                <div className="p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs space-y-2 whitespace-pre-line leading-relaxed">
+                  <div className="flex items-start gap-2">
+                    <AlertCircle className="w-4 h-4 shrink-0 text-amber-400 mt-0.5" />
+                    <div>{detectError}</div>
+                  </div>
+
+                  {detectedBotUsername && needInteraction && (
+                    <div className="pt-1">
+                      <a
+                        href={`https://t.me/${detectedBotUsername}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-[#00ff7f] hover:bg-[#00ff7f]/90 text-black font-black rounded-lg text-xs transition-transform active:scale-95 shadow-md shadow-[#00ff7f]/20"
+                      >
+                        <ExternalLink className="w-3.5 h-3.5" />
+                        <span>1º Clique aqui: Iniciar @{detectedBotUsername} no Telegram</span>
+                      </a>
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -492,6 +517,28 @@ export const TelegramBotView: React.FC<TelegramBotViewProps> = ({
                   <span className="text-white font-semibold">{chatName}</span>
                 </div>
               )}
+
+              {/* Dica do @userinfobot */}
+              <div className="p-3 bg-zinc-950/60 border border-zinc-800/80 rounded-xl space-y-1.5 text-xs">
+                <div className="flex items-center justify-between text-zinc-300 font-semibold text-[11px]">
+                  <span className="flex items-center gap-1.5 text-zinc-300">
+                    <Sparkles className="w-3.5 h-3.5 text-[#00ff7f]" />
+                    <span>Dica: Obtenha seu Chat ID em 3 segundos</span>
+                  </span>
+                  <a
+                    href="https://t.me/userinfobot"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-[#00ff7f] hover:underline flex items-center gap-1 text-[11px] font-bold"
+                  >
+                    <span>@userinfobot</span>
+                    <ExternalLink className="w-3 h-3" />
+                  </a>
+                </div>
+                <p className="text-[11px] text-zinc-400 leading-relaxed">
+                  Se preferir, abra o robô oficial <b>@userinfobot</b> no Telegram e envie qualquer mensagem. Ele responderá na hora com o seu número de <b>Id</b> (ex: <code className="text-[#00ff7f] bg-black/40 px-1 py-0.5 rounded">615009994</code>). Basta colar esse número no campo <b>Chat ID</b> acima!
+                </p>
+              </div>
             </div>
 
             <div className="h-[1px] bg-zinc-800/80 my-2" />
