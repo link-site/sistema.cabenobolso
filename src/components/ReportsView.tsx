@@ -40,6 +40,8 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
   const [selectedMonth, setSelectedMonth] = useState<number | 'all'>('all');
   const [activeSubTab, setActiveSubTab] = useState<'geral' | 'cartoes' | 'projecoes'>('geral');
   const [purchaseSearch, setPurchaseSearch] = useState('');
+  const [purchaseTagSearch, setPurchaseTagSearch] = useState('');
+  const [purchaseTagFilter, setPurchaseTagFilter] = useState<string>('all');
   const [purchaseCardFilter, setPurchaseCardFilter] = useState<string>('all');
 
   // Filtros de transações gerais
@@ -133,24 +135,56 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
     });
   }, [cardPurchases, selectedYear, selectedMonth]);
 
-  const purchaseStats = useMemo(() => {
-    if (activePurchases.length === 0) return { total: 0, count: 0, avg: 0, max: null };
-    const total = activePurchases.reduce((sum, p) => sum + p.installmentAmount, 0);
-    const count = activePurchases.length;
-    let max = activePurchases[0];
-    activePurchases.forEach((p) => {
-      if (p.installmentAmount > max.installmentAmount) max = p;
+  // Lista de tags únicas disponíveis nas compras e sistema
+  const availableTags = useMemo(() => {
+    const set = new Set<string>();
+    tags.forEach((t) => {
+      if (t.name) set.add(t.name);
     });
-    return { total, count, avg: total / count, max };
-  }, [activePurchases]);
+    cardPurchases.forEach((p) => {
+      if (p.category) set.add(p.category);
+    });
+    return Array.from(set).filter(Boolean).sort((a, b) => a.localeCompare(b, 'pt-BR'));
+  }, [tags, cardPurchases]);
 
   const filteredPurchases = useMemo(() => {
     return activePurchases.filter((p) => {
-      const matchesSearch = p.name.toLowerCase().includes(purchaseSearch.toLowerCase());
+      const pName = (p.name || '').toLowerCase();
+      const pTag = (p.category || 'Sem Categoria').toLowerCase();
+
+      // Busca textual por nome da compra ou tag
+      const matchesSearch =
+        !purchaseSearch.trim() ||
+        pName.includes(purchaseSearch.toLowerCase().trim()) ||
+        pTag.includes(purchaseSearch.toLowerCase().trim());
+
+      // Busca específica pelo campo de tag
+      const matchesTagSearch =
+        !purchaseTagSearch.trim() ||
+        pTag.includes(purchaseTagSearch.toLowerCase().trim());
+
+      // Filtro por seleção de tag no dropdown
+      const matchesTagFilter =
+        purchaseTagFilter === 'all' ||
+        pTag === purchaseTagFilter.toLowerCase();
+
+      // Filtro por cartão
       const matchesCard = purchaseCardFilter === 'all' || p.cardId === purchaseCardFilter;
-      return matchesSearch && matchesCard;
+
+      return matchesSearch && matchesTagSearch && matchesTagFilter && matchesCard;
     });
-  }, [activePurchases, purchaseSearch, purchaseCardFilter]);
+  }, [activePurchases, purchaseSearch, purchaseTagSearch, purchaseTagFilter, purchaseCardFilter]);
+
+  const purchaseStats = useMemo(() => {
+    if (filteredPurchases.length === 0) return { total: 0, count: 0, avg: 0, max: null };
+    const total = filteredPurchases.reduce((sum, p) => sum + p.installmentAmount, 0);
+    const count = filteredPurchases.length;
+    let max = filteredPurchases[0];
+    filteredPurchases.forEach((p) => {
+      if (p.installmentAmount > max.installmentAmount) max = p;
+    });
+    return { total, count, avg: total / count, max };
+  }, [filteredPurchases]);
 
   // ----------------------------------------------------
   // NOVO: Processamento de Tags por Cartão de Crédito
@@ -567,15 +601,16 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
 
           {/* Análise de Compras - Detalhado */}
           <div className="p-5 rounded-2xl bg-[#0b0b0e] border border-zinc-800 shadow-xl">
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4 border-b border-zinc-800/80 pb-3">
+            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-4 border-b border-zinc-800/80 pb-3">
               <div>
                 <h3 className="text-sm font-bold text-white flex items-center gap-1.5">
                   <CreditCard className="w-4 h-4 text-[#00ff7f]" /> Relatório Detalhado de Compras Parceladas
                 </h3>
-                <span className="text-[10px] text-zinc-400">Filtre e pesquise parcelas cobradas no período</span>
+                <span className="text-[10px] text-zinc-400">Filtre e pesquise parcelas cobradas por compra, cartão e tag</span>
               </div>
 
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
+                {/* Busca por Compra */}
                 <div className="relative">
                   <Search className="w-3 h-3 text-zinc-500 absolute left-2.5 top-2.5" />
                   <input
@@ -583,20 +618,79 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
                     placeholder="Buscar compra..."
                     value={purchaseSearch}
                     onChange={(e) => setPurchaseSearch(e.target.value)}
-                    className="pl-7 pr-2.5 py-1.5 bg-[#141419] border border-zinc-700 hover:border-zinc-500 text-xs text-white rounded-lg focus:outline-none focus:border-[#00ff7f] w-32 sm:w-44"
+                    className="pl-7 pr-5 py-1.5 bg-[#141419] border border-zinc-700 hover:border-zinc-500 text-xs text-white rounded-lg focus:outline-none focus:border-[#00ff7f] w-28 sm:w-36"
                   />
+                  {purchaseSearch && (
+                    <button
+                      onClick={() => setPurchaseSearch('')}
+                      className="absolute right-1.5 top-1.5 text-zinc-500 hover:text-white text-[10px] px-1"
+                      title="Limpar busca de compra"
+                    >
+                      ✕
+                    </button>
+                  )}
                 </div>
 
+                {/* Busca por Tag */}
+                <div className="relative">
+                  <Tag className="w-3 h-3 text-[#00ff7f] absolute left-2.5 top-2.5" />
+                  <input
+                    type="text"
+                    placeholder="Buscar tag..."
+                    value={purchaseTagSearch}
+                    onChange={(e) => setPurchaseTagSearch(e.target.value)}
+                    className="pl-7 pr-5 py-1.5 bg-[#141419] border border-zinc-700 hover:border-[#00ff7f] text-xs text-white rounded-lg focus:outline-none focus:border-[#00ff7f] w-28 sm:w-36"
+                  />
+                  {purchaseTagSearch && (
+                    <button
+                      onClick={() => setPurchaseTagSearch('')}
+                      className="absolute right-1.5 top-1.5 text-zinc-500 hover:text-white text-[10px] px-1"
+                      title="Limpar busca de tag"
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
+
+                {/* Filtro Select por Tag */}
+                <select
+                  value={purchaseTagFilter}
+                  onChange={(e) => setPurchaseTagFilter(e.target.value)}
+                  className="bg-[#141419] border border-zinc-700 hover:border-[#00ff7f] text-xs text-white rounded-lg px-2 py-1.5 focus:outline-none focus:border-[#00ff7f] cursor-pointer"
+                >
+                  <option value="all">Todas as Tags</option>
+                  {availableTags.map((tag) => (
+                    <option key={tag} value={tag}>Tag: {tag}</option>
+                  ))}
+                </select>
+
+                {/* Filtro por Cartão */}
                 <select
                   value={purchaseCardFilter}
                   onChange={(e) => setPurchaseCardFilter(e.target.value)}
-                  className="bg-[#141419] border border-zinc-700 text-xs text-white rounded-lg px-2 py-1.5 focus:outline-none focus:border-[#00ff7f]"
+                  className="bg-[#141419] border border-zinc-700 hover:border-[#00ff7f] text-xs text-white rounded-lg px-2 py-1.5 focus:outline-none focus:border-[#00ff7f] cursor-pointer"
                 >
                   <option value="all">Todos Cartões</option>
                   {cards.map((c) => (
                     <option key={c.id} value={c.id}>{c.name}</option>
                   ))}
                 </select>
+
+                {/* Botão limpar filtros quando ativo */}
+                {(purchaseSearch || purchaseTagSearch || purchaseTagFilter !== 'all' || purchaseCardFilter !== 'all') && (
+                  <button
+                    onClick={() => {
+                      setPurchaseSearch('');
+                      setPurchaseTagSearch('');
+                      setPurchaseTagFilter('all');
+                      setPurchaseCardFilter('all');
+                    }}
+                    className="px-2 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-[10px] text-zinc-300 hover:text-[#00ff7f] font-bold transition-colors cursor-pointer border border-zinc-700"
+                    title="Limpar todos os filtros de pesquisa"
+                  >
+                    Limpar
+                  </button>
+                )}
               </div>
             </div>
 
@@ -651,10 +745,20 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
                             </span>
                           </td>
                           <td className="py-2 px-3 text-zinc-300">
-                            <span className="flex items-center gap-1">
-                              <Tag className="w-3 h-3 text-zinc-500shrink-0" />
-                              {p.category || 'Sem Categoria'}
-                            </span>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setPurchaseTagFilter(p.category || 'Sem Categoria');
+                                setPurchaseTagSearch('');
+                              }}
+                              className="inline-flex items-center gap-1 hover:text-[#00ff7f] transition-colors cursor-pointer text-left group"
+                              title={`Filtrar compras pela tag "${p.category || 'Sem Categoria'}"`}
+                            >
+                              <Tag className="w-3 h-3 text-[#00ff7f] shrink-0 group-hover:scale-110 transition-transform" />
+                              <span className="underline decoration-dotted decoration-zinc-600 underline-offset-2 group-hover:decoration-[#00ff7f]">
+                                {p.category || 'Sem Categoria'}
+                              </span>
+                            </button>
                           </td>
                           <td className="py-2 px-3 font-mono font-semibold text-zinc-400">{p.currentInstallment}/{p.installmentCount}</td>
                           <td className="py-2 px-3 font-mono font-bold text-rose-400">{formatCurrency(p.installmentAmount)}</td>
