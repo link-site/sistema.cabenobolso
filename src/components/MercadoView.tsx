@@ -20,6 +20,7 @@ import {
 import { MarketItem } from '../types';
 import { formatCurrency } from '../utils/formatters';
 import { DEFAULT_MARKET_ITEMS } from '../data/initialData';
+import { fetchMarketItemPrice } from '../utils/marketPricing';
 
 interface MercadoViewProps {
   marketItems: MarketItem[];
@@ -184,28 +185,11 @@ export const MercadoView: React.FC<MercadoViewProps> = ({
     setSearchingId(item.id);
     setError(null);
     try {
-      const response = await fetch('/api/search-market-prices', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          itemName: item.name,
-          category: item.category,
-        }),
-      });
-
-      const resData = await response.json();
-      if (!resData.success) {
-        throw new Error(resData.error || 'Erro ao processar busca.');
-      }
-
-      const { lowestPrice, cheapestSupermarket, comparisons } = resData.data;
-
+      const data = await fetchMarketItemPrice(item.name, item.category);
       await onUpdateMarketItem(item.id, {
-        lowestPrice,
-        cheapestSupermarket,
-        comparisons,
+        lowestPrice: data.lowestPrice,
+        cheapestSupermarket: data.cheapestSupermarket,
+        comparisons: data.comparisons,
       });
     } catch (err: any) {
       console.error(err);
@@ -226,34 +210,59 @@ export const MercadoView: React.FC<MercadoViewProps> = ({
     const targets = unpriced.length > 0 ? unpriced : marketItems;
 
     try {
-      for (const item of targets) {
-        setSearchingId(item.id);
-        const response = await fetch('/api/search-market-prices', {
+      // 1. Tenta o endpoint rápido em lote
+      let bulkSucceeded = false;
+      try {
+        const bulkRes = await fetch('/api/search-market-prices-bulk', {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            itemName: item.name,
-            category: item.category,
+            items: targets.map((t) => ({ id: t.id, name: t.name, category: t.category })),
           }),
         });
 
-        const resData = await response.json();
-        if (resData.success) {
-          const { lowestPrice, cheapestSupermarket, comparisons } = resData.data;
-          await onUpdateMarketItem(item.id, {
-            lowestPrice,
-            cheapestSupermarket,
-            comparisons,
-          });
+        const bulkText = await bulkRes.text();
+        if (bulkText) {
+          try {
+            const bulkData = JSON.parse(bulkText);
+            if (bulkData.success && Array.isArray(bulkData.results) && bulkData.results.length > 0) {
+              for (const r of bulkData.results) {
+                await onUpdateMarketItem(r.id, {
+                  lowestPrice: r.lowestPrice,
+                  cheapestSupermarket: r.cheapestSupermarket,
+                  comparisons: r.comparisons,
+                });
+              }
+              bulkSucceeded = true;
+            }
+          } catch {
+            // Ignora falha de parse do lote
+          }
         }
-        // Small delay to prevent API flooding
-        await new Promise((resolve) => setTimeout(resolve, 500));
+      } catch (bulkErr) {
+        console.warn('[Mercado] Falha no endpoint em lote, processando item a item:', bulkErr);
+      }
+
+      // 2. Se o lote não foi concluído, processa item a item com fallback seguro
+      if (!bulkSucceeded) {
+        for (const item of targets) {
+          setSearchingId(item.id);
+          try {
+            const data = await fetchMarketItemPrice(item.name, item.category);
+            await onUpdateMarketItem(item.id, {
+              lowestPrice: data.lowestPrice,
+              cheapestSupermarket: data.cheapestSupermarket,
+              comparisons: data.comparisons,
+            });
+          } catch (itemErr) {
+            console.warn(`[Mercado] Erro ao cotar item "${item.name}":`, itemErr);
+          }
+          await new Promise((resolve) => setTimeout(resolve, 150));
+        }
       }
     } catch (err: any) {
       console.error(err);
-      setError(`Erro na varredura completa dos preços: ${err.message || err}`);
+      setError(`Erro na varredura de preços: ${err.message || err}`);
     } finally {
       setSearchingId(null);
       setGlobalSearching(false);

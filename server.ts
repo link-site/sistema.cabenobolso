@@ -406,43 +406,39 @@ Responda ESTRITAMENTE em formato JSON com a seguinte estrutura:
   ]
 }`;
 
-        const modelsToTry = ['gemini-3.8-flash', 'gemini-flash-latest', 'gemini-3.1-flash-lite'];
-        for (const modelCandidate of modelsToTry) {
-          try {
-            console.log(`[Mercado Cotação] Tentando cotação com modelo '${modelCandidate}'...`);
-            const response = await generateWithTimeout(
-              ai,
-              modelCandidate,
-              {
-                model: modelCandidate,
-                contents: prompt,
-                config: {
-                  responseMimeType: 'application/json',
-                },
+        try {
+          console.log(`[Mercado Cotação] Cotando com Gemini para "${itemName}"...`);
+          const response = await generateWithTimeout(
+            ai,
+            'gemini-3.8-flash',
+            {
+              model: 'gemini-3.8-flash',
+              contents: prompt,
+              config: {
+                responseMimeType: 'application/json',
               },
-              15000
-            );
+            },
+            4000
+          );
 
-            if (response && response.text) {
-              const cleanedText = response.text.trim().replace(/^```json\s*/i, '').replace(/\s*```$/i, '').trim();
-              const parsed = JSON.parse(cleanedText);
-              if (parsed && parsed.lowestPrice && Array.isArray(parsed.comparisons)) {
-                console.log(`[Mercado Cotação] Cotação obtida com sucesso via '${modelCandidate}'!`);
-                return res.json({
-                  success: true,
-                  source: 'gemini',
-                  data: parsed,
-                });
-              }
+          if (response && response.text) {
+            const cleanedText = response.text.trim().replace(/^```json\s*/i, '').replace(/\s*```$/i, '').trim();
+            const parsed = JSON.parse(cleanedText);
+            if (parsed && parsed.lowestPrice && Array.isArray(parsed.comparisons)) {
+              console.log(`[Mercado Cotação] Cotação obtida com sucesso via Gemini para "${itemName}"!`);
+              return res.json({
+                success: true,
+                source: 'gemini',
+                data: parsed,
+              });
             }
-          } catch (modelErr: any) {
-            console.warn(`[Mercado Cotação] Modelo '${modelCandidate}' falhou ou atingiu cota:`, modelErr?.message || modelErr);
           }
+        } catch (modelErr: any) {
+          console.warn(`[Mercado Cotação] Gemini indisponível para "${itemName}" (${modelErr?.message || 'timeout/erro'}), ativando benchmark local instantâneo.`);
         }
       }
 
-      // Se a IA não estiver disponível ou estiver com cota esgotada (429), aciona benchmark inteligente de Fortaleza
-      console.log(`[Mercado Cotação] Ativando benchmark de mercado de Fortaleza para "${itemName}"`);
+      // Se a IA não estiver disponível ou estiver com cota esgotada (429/503), aciona benchmark inteligente de Fortaleza
       const fallbackData = generateMarketBenchmarkPrices(itemName, category);
       return res.json({
         success: true,
@@ -458,6 +454,29 @@ Responda ESTRITAMENTE em formato JSON com a seguinte estrutura:
         data: safeData,
       });
     }
+  });
+
+  // Endpoint em lote para varredura rápida de múltiplos itens de mercado
+  app.post('/api/search-market-prices-bulk', async (req, res) => {
+    const { items = [] } = req.body;
+    if (!Array.isArray(items) || items.length === 0) {
+      return res.json({ success: true, results: [] });
+    }
+
+    const results = items.map((it: any) => {
+      const benchmark = generateMarketBenchmarkPrices(it.name || it.itemName, it.category);
+      return {
+        id: it.id,
+        lowestPrice: benchmark.lowestPrice,
+        cheapestSupermarket: benchmark.cheapestSupermarket,
+        comparisons: benchmark.comparisons,
+      };
+    });
+
+    return res.json({
+      success: true,
+      results,
+    });
   });
 
   // =========================================================================
