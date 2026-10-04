@@ -245,94 +245,97 @@ Responda ESTRITAMENTE em formato JSON com a seguinte estrutura:
     }
   });
 
-  // Helper para estimar preços realistas nos supermercados de Fortaleza em caso de indisponibilidade ou cota limite da API
+  // Helper para estimar preços realistas nos supermercados de Fortaleza preservando a especificação exata do usuário
   function generateMarketBenchmarkPrices(itemName: string, category?: string) {
-    const normName = itemName.toLowerCase().trim();
+    const rawName = (itemName || 'Item').trim();
+    const normName = rawName.toLowerCase();
     const normCat = (category || 'Outros').trim();
 
     let basePrice = 8.5;
-    let productSpec = itemName;
 
-    if (normName.includes('leite')) {
-      basePrice = 5.49;
-      productSpec = 'Leite Integral Betânia 1L';
+    // Detecta multiplicadores de tamanho/volume informados pelo usuário
+    let multiplier = 1;
+    if (normName.includes('5l') || normName.includes('5 l') || normName.includes('5 litro') || normName.includes('5 litros')) {
+      multiplier = 4.0;
+    } else if (normName.includes('3l') || normName.includes('3 l') || normName.includes('3 litro') || normName.includes('3 litros')) {
+      multiplier = 2.5;
+    } else if (normName.includes('2l') || normName.includes('2 l') || normName.includes('2 litro') || normName.includes('2 litros')) {
+      multiplier = 1.8;
+    } else if (normName.includes('5kg') || normName.includes('5 kg') || normName.includes('5 quilo')) {
+      multiplier = 4.5;
+    } else if (normName.includes('10kg') || normName.includes('10 kg')) {
+      multiplier = 9.0;
+    } else if (normName.includes('fardo') || normName.includes('caixa')) {
+      multiplier = 8.0;
+    } else if (normName.includes('30un') || normName.includes('30 ovos') || normName.includes('cartela')) {
+      multiplier = 1.0;
+    }
+
+    // Identificação de preço base por tipo de produto
+    if (normName.includes('sabão líquido') || normName.includes('sabao liquido') || normName.includes('lava roupas líquido') || normName.includes('lava roupas liquido')) {
+      basePrice = multiplier > 1 ? 8.2 * multiplier : 14.5; // ~R$ 32,80 para 5L
+    } else if (normName.includes('sabão em pó') || normName.includes('sabao em po') || normName.includes('omo')) {
+      basePrice = multiplier > 1 ? 7.5 * multiplier : 12.9;
+    } else if (normName.includes('leite')) {
+      basePrice = 5.49 * multiplier;
     } else if (normName.includes('café') || normName.includes('cafe')) {
-      basePrice = 10.89;
-      productSpec = 'Café Santa Clara Vácuo 250g';
+      basePrice = 10.89 * multiplier;
     } else if (normName.includes('queijo') || normName.includes('coalho')) {
       basePrice = 38.9;
-      productSpec = 'Queijo Coalho Sertanejo Kg';
     } else if (normName.includes('cuscuz') || normName.includes('flocão') || normName.includes('flocao')) {
-      basePrice = 2.49;
-      productSpec = 'Flocão de Milho Maratá 500g';
+      basePrice = 2.49 * multiplier;
     } else if (normName.includes('tapioca') || normName.includes('goma')) {
-      basePrice = 6.9;
-      productSpec = 'Goma de Tapioca Fresca Cearense 1kg';
+      basePrice = 6.9 * multiplier;
     } else if (normName.includes('cajuína') || normName.includes('cajuina') || normName.includes('são geraldo')) {
-      basePrice = 8.99;
-      productSpec = 'Refrigerante Cajuína São Geraldo 2L';
-    } else if (normName.includes('carne') || normName.includes('alcatra') || normName.includes('sol')) {
-      basePrice = 45.9;
-      productSpec = 'Carne de Sol de Alcatra Especial (Kg)';
+      basePrice = 8.99 * multiplier;
+    } else if (normName.includes('carne') || normName.includes('alcatra') || normName.includes('picanha') || normName.includes('sol')) {
+      basePrice = 45.9 * multiplier;
     } else if (normName.includes('feijão') || normName.includes('feijao')) {
-      basePrice = 8.2;
-      productSpec = 'Feijão de Corda Verde / Macassar (Kg)';
+      basePrice = 8.2 * multiplier;
     } else if (normName.includes('arroz')) {
-      basePrice = 5.79;
-      productSpec = 'Arroz Branco Tio João / Camil 1kg';
+      basePrice = 5.79 * multiplier;
     } else if (normName.includes('açúcar') || normName.includes('acucar')) {
-      basePrice = 4.29;
-      productSpec = 'Açúcar Cristal Fortaleza 1kg';
+      basePrice = 4.29 * multiplier;
     } else if (normName.includes('óleo') || normName.includes('oleo')) {
-      basePrice = 6.49;
-      productSpec = 'Óleo de Soja Soya / Liza 900ml';
+      basePrice = 6.49 * multiplier;
     } else if (normName.includes('ovo') || normName.includes('ovos')) {
       basePrice = 17.9;
-      productSpec = 'Cartela de Ovos Brancos 30un';
     } else if (normName.includes('frango') || normName.includes('peito')) {
-      basePrice = 19.9;
-      productSpec = 'Peito de Frango Congelado (Kg)';
+      basePrice = 19.9 * multiplier;
     } else if (normName.includes('cerveja')) {
-      basePrice = 4.19;
-      productSpec = 'Cerveja Lata 350ml';
+      basePrice = 4.19 * multiplier;
     } else if (normName.includes('pão') || normName.includes('pao')) {
-      basePrice = 14.5;
-      productSpec = 'Pão Francês Tradicional (Kg)';
-    } else if (normName.includes('sabão') || normName.includes('sabao') || normName.includes('omo')) {
-      basePrice = 12.9;
-      productSpec = 'Sabão em Pó OMO Lavagem Perfeita 800g';
+      basePrice = 9.5 * multiplier;
     } else if (normName.includes('detergente')) {
-      basePrice = 2.49;
-      productSpec = 'Detergente Líquido Ypê 500ml';
+      basePrice = 2.49 * multiplier;
     } else if (normName.includes('shampoo')) {
-      basePrice = 15.9;
-      productSpec = 'Shampoo Seda / Pantene 325ml';
+      basePrice = 15.9 * multiplier;
     } else {
-      if (normCat.includes('Açougue') || normCat.includes('Peixaria')) basePrice = 36.0;
-      else if (normCat.includes('Frios') || normCat.includes('Laticínios')) basePrice = 16.5;
-      else if (normCat.includes('Hortifrúti')) basePrice = 6.5;
-      else if (normCat.includes('Padaria')) basePrice = 12.0;
-      else if (normCat.includes('Bebidas')) basePrice = 7.5;
-      else if (normCat.includes('Higiene')) basePrice = 11.0;
-      else if (normCat.includes('Limpeza')) basePrice = 8.5;
-      else basePrice = 9.0;
+      if (normCat.includes('Açougue') || normCat.includes('Peixaria')) basePrice = 36.0 * multiplier;
+      else if (normCat.includes('Frios') || normCat.includes('Laticínios')) basePrice = 16.5 * multiplier;
+      else if (normCat.includes('Hortifrúti')) basePrice = 6.5 * multiplier;
+      else if (normCat.includes('Padaria')) basePrice = 12.0 * multiplier;
+      else if (normCat.includes('Bebidas')) basePrice = 7.5 * multiplier;
+      else if (normCat.includes('Higiene')) basePrice = 11.0 * multiplier;
+      else if (normCat.includes('Limpeza')) basePrice = 8.5 * multiplier;
+      else basePrice = 9.0 * multiplier;
     }
 
     const stores = [
-      { supermarket: 'Atacadão', factor: 0.92 },
-      { supermarket: 'Mercadão', factor: 0.96 },
-      { supermarket: 'CenterBox', factor: 0.98 },
-      { supermarket: 'Lagoa', factor: 1.0 },
-      { supermarket: 'Frangolândia', factor: 1.02 },
-      { supermarket: 'Guará', factor: 1.12 },
-      { supermarket: 'São Luiz', factor: 1.16 },
+      { supermarket: 'Atacadão', factor: 0.90, brandTag: 'Oferta Atacarejo / Econômica' },
+      { supermarket: 'Mercadão', factor: 0.95, brandTag: 'Marca Popular' },
+      { supermarket: 'CenterBox', factor: 0.98, brandTag: 'Marca Tradicional' },
+      { supermarket: 'Lagoa', factor: 1.0, brandTag: 'Marca Cearense / Tradicional' },
+      { supermarket: 'Frangolândia', factor: 1.02, brandTag: 'Mais Vendida' },
+      { supermarket: 'Guará', factor: 1.12, brandTag: 'Linha Selecionada' },
+      { supermarket: 'São Luiz', factor: 1.16, brandTag: 'Linha Premium / Especial' },
     ];
 
     const comparisons = stores.map((s) => {
       const rawPrice = Number((basePrice * s.factor).toFixed(2));
       return {
         supermarket: s.supermarket,
-        productName: productSpec,
+        productName: `${rawName} (${s.brandTag})`,
         price: rawPrice,
         isAvailable: true,
       };
@@ -342,7 +345,7 @@ Responda ESTRITAMENTE em formato JSON com a seguinte estrutura:
     const cheapest = comparisons.find((c) => c.price === lowestPrice);
 
     return {
-      itemName,
+      itemName: rawName,
       category: normCat,
       lowestPrice,
       cheapestSupermarket: cheapest ? cheapest.supermarket : 'Atacadão',
@@ -366,79 +369,75 @@ Responda ESTRITAMENTE em formato JSON com a seguinte estrutura:
       try {
         ai = getGeminiClient(apiKey);
       } catch (keyErr) {
-        console.warn('[Mercado Cotação] Gemini API Key indisponível, usando benchmark local.');
+        console.warn('[Mercado Cotação] Gemini API Key indisponível.');
       }
 
       if (ai) {
-        const prompt = `Você é um assistente de economia doméstica especialista em Fortaleza, Ceará.
-Faça uma pesquisa e análise realista de preços para o item de supermercado:
-- Item: "${itemName}"
-- Categoria sugerida: "${category || 'Geral'}"
+        const prompt = `Você é um pesquisador de preços de supermercados de Fortaleza, Ceará.
+Faça uma pesquisa com as informações mais recentes de preços para o produto exato especificado:
+- Produto Solicitado: "${itemName}"
+- Categoria: "${category || 'Geral'}"
 
-Gere uma cotação comparativa realista para os seguintes supermercados de Fortaleza:
-1. Atacadão (Fortaleza) - Geralmente o menor preço por ser atacarejo
-2. Frangolândia - Rede tradicional cearense com preços médios competitivos
-3. Lagoa (Supermercado Lagoa) - Rede tradicional de Fortaleza com bom custo-benefício
-4. CenterBox - Preços intermediários e competitivos de bairro
-5. Mercadão (Supermercado Mercadão) - Preços acessíveis
-6. Guará (Supermercado Guará) - Rede mais premium, com variedade selecionada
-7. São Luiz (Mercadinhos São Luiz) - Rede premium de alta qualidade e atendimento
+ATENÇÃO CRUCIAL ÀS REGRAS:
+1. Respeite com absoluta fidelidade o nome, tipo, volume ou tamanho pedido pelo usuário. Por exemplo: se o usuário pediu "Sabão Líquido 5 Litro", a cotação deve ser exclusivamente de sabão líquido em embalagem de 5 litros (NÃO pode virar sabão em pó nem embalagem pequena).
+2. Cada supermercado deve ter uma oferta realista com marcas reais vendidas no Ceará (ex: marcas populares, regionais ou líderes de mercado como Omo, Tixan Ypê, Baby Soft, Teiú, Betânia, Santa Clara, Fortaleza, etc.).
+3. Os 7 supermercados a cotar são: Atacadão, Mercadão, CenterBox, Lagoa, Frangolândia, Guará, São Luiz.
+4. "lowestPrice" deve ser o menor valor encontrado e "cheapestSupermarket" o nome do supermercado correspondente.
 
-Regras:
-- Atribua um nome de produto específico e realista com marca popular cearense/nacional (ex: Betânia para leite, Santa Clara para café, M. Dias Branco/Fortaleza para massas e biscoitos, etc.).
-- Defina o menor preço em "lowestPrice" e qual supermercado o oferece em "cheapestSupermarket".
-- Forneça a lista de cotação em "comparisons".
-
-Responda ESTRITAMENTE em formato JSON com a seguinte estrutura:
+Responda ESTRITAMENTE em formato JSON com este schema:
 {
   "itemName": "${itemName}",
   "category": "${category || 'Geral'}",
-  "lowestPrice": 5.49,
+  "lowestPrice": 24.90,
   "cheapestSupermarket": "Atacadão",
   "comparisons": [
-    { "supermarket": "Atacadão", "productName": "Ex: Leite Integral Betânia 1L", "price": 5.19, "isAvailable": true },
-    { "supermarket": "Mercadão", "productName": "Ex: Leite Integral Betânia 1L", "price": 5.39, "isAvailable": true },
-    { "supermarket": "CenterBox", "productName": "Ex: Leite Integral Betânia 1L", "price": 5.49, "isAvailable": true },
-    { "supermarket": "Lagoa", "productName": "Ex: Leite Integral Betânia 1L", "price": 5.59, "isAvailable": true },
-    { "supermarket": "Frangolândia", "productName": "Ex: Leite Integral Betânia 1L", "price": 5.69, "isAvailable": true },
-    { "supermarket": "Guará", "productName": "Ex: Leite Integral Betânia 1L", "price": 6.19, "isAvailable": true },
-    { "supermarket": "São Luiz", "productName": "Ex: Leite Integral Betânia 1L", "price": 6.39, "isAvailable": true }
+    { "supermarket": "Atacadão", "productName": "Ex: Sabão Líquido Teiú Galão 5L", "price": 24.90, "isAvailable": true },
+    { "supermarket": "Mercadão", "productName": "Ex: Sabão Líquido Baby Soft 5L", "price": 27.50, "isAvailable": true },
+    { "supermarket": "CenterBox", "productName": "Ex: Sabão Líquido Tixan Ypê 5L", "price": 32.90, "isAvailable": true },
+    { "supermarket": "Lagoa", "productName": "Ex: Sabão Líquido Brilhante 5L", "price": 34.90, "isAvailable": true },
+    { "supermarket": "Frangolândia", "productName": "Ex: Sabão Líquido Tixan Ypê 5L", "price": 35.50, "isAvailable": true },
+    { "supermarket": "Guará", "productName": "Ex: Sabão Líquido Omo 5L", "price": 42.90, "isAvailable": true },
+    { "supermarket": "São Luiz", "productName": "Ex: Sabão Líquido Omo Concentrado 5L", "price": 45.90, "isAvailable": true }
   ]
 }`;
 
-        try {
-          console.log(`[Mercado Cotação] Cotando com Gemini para "${itemName}"...`);
-          const response = await generateWithTimeout(
-            ai,
-            'gemini-3.8-flash',
-            {
-              model: 'gemini-3.8-flash',
-              contents: prompt,
-              config: {
-                responseMimeType: 'application/json',
+        // Modelos a tentar em ordem de velocidade e disponibilidade
+        const models = ['gemini-3.1-flash-lite', 'gemini-3.8-flash'];
+        for (const m of models) {
+          try {
+            console.log(`[Mercado Cotação] Cotando "${itemName}" com modelo ${m}...`);
+            const response = await generateWithTimeout(
+              ai,
+              m,
+              {
+                model: m,
+                contents: prompt,
+                config: {
+                  responseMimeType: 'application/json',
+                },
               },
-            },
-            4000
-          );
+              7000
+            );
 
-          if (response && response.text) {
-            const cleanedText = response.text.trim().replace(/^```json\s*/i, '').replace(/\s*```$/i, '').trim();
-            const parsed = JSON.parse(cleanedText);
-            if (parsed && parsed.lowestPrice && Array.isArray(parsed.comparisons)) {
-              console.log(`[Mercado Cotação] Cotação obtida com sucesso via Gemini para "${itemName}"!`);
-              return res.json({
-                success: true,
-                source: 'gemini',
-                data: parsed,
-              });
+            if (response && response.text) {
+              const cleanedText = response.text.trim().replace(/^```json\s*/i, '').replace(/\s*```$/i, '').trim();
+              const parsed = JSON.parse(cleanedText);
+              if (parsed && parsed.lowestPrice && Array.isArray(parsed.comparisons) && parsed.comparisons.length > 0) {
+                console.log(`[Mercado Cotação] Cotação obtida com sucesso via ${m} para "${itemName}"!`);
+                return res.json({
+                  success: true,
+                  source: 'gemini',
+                  data: parsed,
+                });
+              }
             }
+          } catch (modelErr: any) {
+            console.warn(`[Mercado Cotação] Modelo ${m} falhou para "${itemName}":`, modelErr?.message || modelErr);
           }
-        } catch (modelErr: any) {
-          console.warn(`[Mercado Cotação] Gemini indisponível para "${itemName}" (${modelErr?.message || 'timeout/erro'}), ativando benchmark local instantâneo.`);
         }
       }
 
-      // Se a IA não estiver disponível ou estiver com cota esgotada (429/503), aciona benchmark inteligente de Fortaleza
+      // Se a IA não responder a tempo, aciona o benchmark dinâmico
       const fallbackData = generateMarketBenchmarkPrices(itemName, category);
       return res.json({
         success: true,
@@ -456,13 +455,94 @@ Responda ESTRITAMENTE em formato JSON com a seguinte estrutura:
     }
   });
 
-  // Endpoint em lote para varredura rápida de múltiplos itens de mercado
+  // Endpoint em lote para varredura rápida de múltiplos itens de mercado com IA
   app.post('/api/search-market-prices-bulk', async (req, res) => {
-    const { items = [] } = req.body;
+    const { items = [], apiKey } = req.body;
     if (!Array.isArray(items) || items.length === 0) {
       return res.json({ success: true, results: [] });
     }
 
+    try {
+      let ai: GoogleGenAI | null = null;
+      try {
+        ai = getGeminiClient(apiKey);
+      } catch (e) {
+        // segue sem ai
+      }
+
+      if (ai) {
+        const simplifiedItems = items.map((it) => ({
+          id: it.id,
+          name: it.name || it.itemName,
+          category: it.category || 'Geral',
+        }));
+
+        const prompt = `Você é um pesquisador de preços de supermercados de Fortaleza, Ceará.
+Pesquise e informe preços recentes e realistas para os seguintes itens exatos de compras:
+${JSON.stringify(simplifiedItems)}
+
+Supermercados a cotar para CADA item:
+Atacadão, Mercadão, CenterBox, Lagoa, Frangolândia, Guará, São Luiz.
+
+REGRAS OBRIGATÓRIAS:
+- Mantenha rigorosamente o tipo, volume, tamanho e especificação de cada produto (ex: Sabão Líquido 5 Litros deve ser cotado com embalagem 5L de marcas reais, NÃO sabão em pó).
+- Atribua marcas reais vendidas no Ceará para cada supermercado.
+
+Retorne ESTRITAMENTE em formato JSON com o schema:
+{
+  "results": [
+    {
+      "id": "id_do_item",
+      "itemName": "nome_do_item",
+      "lowestPrice": 24.90,
+      "cheapestSupermarket": "Atacadão",
+      "comparisons": [
+        { "supermarket": "Atacadão", "productName": "Produto e Marca Real 5L", "price": 24.90, "isAvailable": true },
+        { "supermarket": "Mercadão", "productName": "Produto e Marca Real 5L", "price": 27.50, "isAvailable": true },
+        { "supermarket": "CenterBox", "productName": "Produto e Marca Real 5L", "price": 31.90, "isAvailable": true },
+        { "supermarket": "Lagoa", "productName": "Produto e Marca Real 5L", "price": 34.00, "isAvailable": true },
+        { "supermarket": "Frangolândia", "productName": "Produto e Marca Real 5L", "price": 33.90, "isAvailable": true },
+        { "supermarket": "Guará", "productName": "Produto e Marca Real 5L", "price": 38.00, "isAvailable": true },
+        { "supermarket": "São Luiz", "productName": "Produto e Marca Real 5L", "price": 42.00, "isAvailable": true }
+      ]
+    }
+  ]
+}`;
+
+        try {
+          console.log(`[Mercado Bulk] Cotando ${simplifiedItems.length} itens com Gemini...`);
+          const response = await generateWithTimeout(
+            ai,
+            'gemini-3.1-flash-lite',
+            {
+              model: 'gemini-3.1-flash-lite',
+              contents: prompt,
+              config: { responseMimeType: 'application/json' },
+            },
+            12000
+          );
+
+          if (response && response.text) {
+            const cleaned = response.text.trim().replace(/^```json\s*/i, '').replace(/\s*```$/i, '').trim();
+            const parsed = JSON.parse(cleaned);
+            if (parsed && Array.isArray(parsed.results) && parsed.results.length > 0) {
+              console.log(`[Mercado Bulk] Cotação em lote concluída com sucesso para ${parsed.results.length} itens!`);
+              return res.json({
+                success: true,
+                source: 'gemini-bulk',
+                results: parsed.results,
+              });
+            }
+          }
+        } catch (bulkAiErr: any) {
+          console.warn('[Mercado Bulk] Gemini falhou no lote, usando benchmark dinâmico:', bulkAiErr?.message || bulkAiErr);
+        }
+      }
+    } catch (e) {
+      console.warn('[Mercado Bulk] Erro geral:', e);
+    }
+
+    // Fallback dinâmico que respeita a especificação exata do usuário
     const results = items.map((it: any) => {
       const benchmark = generateMarketBenchmarkPrices(it.name || it.itemName, it.category);
       return {
@@ -475,6 +555,7 @@ Responda ESTRITAMENTE em formato JSON com a seguinte estrutura:
 
     return res.json({
       success: true,
+      source: 'benchmark-dynamic',
       results,
     });
   });
