@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import {
   Send,
   Bot,
@@ -22,6 +22,10 @@ import {
   ArrowUpRight,
   ArrowDownRight,
   CalendarCheck2,
+  Zap,
+  Activity,
+  ShieldCheck,
+  CheckCheck,
 } from 'lucide-react';
 import { Transaction, CreditCard, CardPurchase, TelegramBotConfig } from '../types';
 import {
@@ -33,6 +37,10 @@ import {
   sendTelegramMessage,
   cleanTelegramToken,
   cleanTelegramChatId,
+  getTelegramScheduleStatus,
+  triggerDailyTelegramNow,
+  registerTelegramScheduleOnServer,
+  ScheduleStatusResult,
 } from '../utils/telegramApi';
 import { formatCurrency } from '../utils/formatters';
 
@@ -64,6 +72,12 @@ export const TelegramBotView: React.FC<TelegramBotViewProps> = ({
   const [messageTemplate, setMessageTemplate] = useState(config.messageTemplate || '');
   const [showToken, setShowToken] = useState(false);
 
+  // Server Scheduler Status State
+  const [serverStatus, setServerStatus] = useState<ScheduleStatusResult | null>(null);
+  const [isLoadingStatus, setIsLoadingStatus] = useState(false);
+  const [isTriggeringDaily, setIsTriggeringDaily] = useState(false);
+  const [dailyTriggerFeedback, setDailyTriggerFeedback] = useState<{ success: boolean; message: string } | null>(null);
+
   // Action status states
   const [isDetecting, setIsDetecting] = useState(false);
   const [detectError, setDetectError] = useState<string | null>(null);
@@ -81,7 +95,7 @@ export const TelegramBotView: React.FC<TelegramBotViewProps> = ({
   const [saveSuccess, setSaveSuccess] = useState(false);
 
   // Synchronize when prop changes
-  React.useEffect(() => {
+  useEffect(() => {
     setBotToken(config.botToken || '');
     setChatId(config.chatId || '');
     setChatName(config.chatName || '');
@@ -99,6 +113,25 @@ export const TelegramBotView: React.FC<TelegramBotViewProps> = ({
   const previewMessage = useMemo(() => {
     return buildTelegramMessage(summary, messageTemplate);
   }, [summary, messageTemplate]);
+
+  // Fetch Server Scheduler Status
+  const fetchScheduleStatus = useCallback(async () => {
+    setIsLoadingStatus(true);
+    try {
+      const data = await getTelegramScheduleStatus('default_user');
+      setServerStatus(data);
+    } catch {
+      // silencioso
+    } finally {
+      setIsLoadingStatus(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchScheduleStatus();
+    const timer = setInterval(fetchScheduleStatus, 10000);
+    return () => clearInterval(timer);
+  }, [fetchScheduleStatus]);
 
   // Handle Detect Chat ID
   const handleDetectChatId = async () => {
@@ -134,6 +167,16 @@ export const TelegramBotView: React.FC<TelegramBotViewProps> = ({
           chatId: String(data.chatId),
           chatName: detectedName,
         });
+
+        // Registra no servidor
+        await registerTelegramScheduleOnServer({
+          botToken: cleanToken,
+          chatId: String(data.chatId),
+          scheduledTime,
+          enabled,
+          messageText: previewMessage,
+        });
+        fetchScheduleStatus();
       } else {
         setDetectError(data.error || 'Não foi possível encontrar mensagens recentes.');
         if (data.needInteraction) {
@@ -172,7 +215,7 @@ export const TelegramBotView: React.FC<TelegramBotViewProps> = ({
       if (data.success) {
         setTestResult({
           success: true,
-          message: '🎉 Mensagem enviada com sucesso no seu Telegram! Verifique seu aplicativo.',
+          message: '🎉 Mensagem de teste enviada com sucesso no seu Telegram! Verifique seu aplicativo.',
         });
         await onSaveConfig({
           lastSentDate: new Date().toISOString().split('T')[0],
@@ -180,6 +223,7 @@ export const TelegramBotView: React.FC<TelegramBotViewProps> = ({
           lastSentStatus: 'success',
           lastSentError: undefined,
         });
+        fetchScheduleStatus();
       } else {
         setTestResult({
           success: false,
@@ -189,6 +233,7 @@ export const TelegramBotView: React.FC<TelegramBotViewProps> = ({
           lastSentStatus: 'error',
           lastSentError: data.error,
         });
+        fetchScheduleStatus();
       }
     } catch (err: any) {
       setTestResult({
@@ -200,20 +245,94 @@ export const TelegramBotView: React.FC<TelegramBotViewProps> = ({
     }
   };
 
+  // Handle Trigger Daily Report Immediately
+  const handleTriggerDailyNow = async () => {
+    const cleanToken = cleanTelegramToken(botToken);
+    const cleanId = cleanTelegramChatId(chatId);
+
+    if (!cleanToken || !cleanId) {
+      setDailyTriggerFeedback({
+        success: false,
+        message: 'Configure e salve o Token e o Chat ID antes de disparar o relatório.',
+      });
+      return;
+    }
+
+    setIsTriggeringDaily(true);
+    setDailyTriggerFeedback(null);
+
+    try {
+      const res = await triggerDailyTelegramNow({
+        userId: 'default_user',
+        botToken: cleanToken,
+        chatId: cleanId,
+        messageText: previewMessage,
+      });
+
+      if (res.success) {
+        const todayStr = res.sentDate || new Date().toISOString().split('T')[0];
+        setDailyTriggerFeedback({
+          success: true,
+          message: `✅ Relatório diário de ${summary.monthName} entregue no seu Telegram às ${res.sentTime || 'agora'}!`,
+        });
+        await onSaveConfig({
+          lastSentDate: todayStr,
+          lastSentTimestamp: new Date().toISOString(),
+          lastSentStatus: 'success',
+          lastSentError: undefined,
+        });
+        fetchScheduleStatus();
+      } else {
+        setDailyTriggerFeedback({
+          success: false,
+          message: res.error || 'Falha ao entregar relatório diário no Telegram.',
+        });
+        await onSaveConfig({
+          lastSentStatus: 'error',
+          lastSentError: res.error,
+        });
+        fetchScheduleStatus();
+      }
+    } catch (err: any) {
+      setDailyTriggerFeedback({
+        success: false,
+        message: `Erro ao disparar: ${err.message || 'Verifique sua conexão'}`,
+      });
+    } finally {
+      setIsTriggeringDaily(false);
+    }
+  };
+
   // Handle Save Settings
   const handleSave = async () => {
     setIsSaving(true);
     setSaveSuccess(false);
 
     try {
+      const cleanToken = botToken.trim();
+      const cleanId = chatId.trim();
+
       await onSaveConfig({
-        botToken: botToken.trim(),
-        chatId: chatId.trim(),
+        botToken: cleanToken,
+        chatId: cleanId,
         chatName: chatName.trim(),
         enabled,
         scheduledTime,
         messageTemplate: messageTemplate.trim(),
       });
+
+      // Registra imediatamente no backend
+      if (cleanToken && cleanId) {
+        await registerTelegramScheduleOnServer({
+          botToken: cleanToken,
+          chatId: cleanId,
+          scheduledTime,
+          enabled,
+          messageText: previewMessage,
+        });
+        fetchScheduleStatus();
+      }
+
       setSaveSuccess(true);
       setTimeout(() => setSaveSuccess(false), 3000);
     } catch (err: any) {
@@ -224,6 +343,9 @@ export const TelegramBotView: React.FC<TelegramBotViewProps> = ({
   };
 
   const isConfigured = Boolean(botToken.trim() && chatId.trim());
+  const serverTime = serverStatus?.serverTime || '--:--';
+  const serverDate = serverStatus?.serverDate || '';
+  const isSentToday = serverStatus?.isSentToday || config.lastSentDate === serverDate && config.lastSentStatus === 'success';
 
   return (
     <div className="space-y-6 max-w-6xl mx-auto pb-12">
@@ -357,6 +479,155 @@ export const TelegramBotView: React.FC<TelegramBotViewProps> = ({
                 {formatCurrency(summary.totalGastos)}
               </span>
             </div>
+          </div>
+        </div>
+      </div>
+
+      {/* PAINEL DE DIAGNÓSTICO & STATUS DO DISPARO DIÁRIO */}
+      <div className="bg-[#0b0f0d] border border-zinc-800 hover:border-[#00ff7f]/40 transition-all rounded-2xl p-5 shadow-xl space-y-4">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 border-b border-zinc-900 pb-3">
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-lg bg-[#00ff7f]/10 border border-[#00ff7f]/30 flex items-center justify-center text-[#00ff7f]">
+              <Activity className="w-4 h-4" />
+            </div>
+            <div>
+              <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                <span>Diagnóstico do Sistema de Envio Automático</span>
+                {isLoadingStatus && <RefreshCw className="w-3 h-3 animate-spin text-zinc-500" />}
+              </h3>
+              <p className="text-[11px] text-zinc-400">
+                Monitoramento em tempo real do agendador diário às <b>{scheduledTime}</b> (Fuso de Brasília/Fortaleza)
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 flex-wrap">
+            <button
+              onClick={fetchScheduleStatus}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-300 border border-zinc-700 text-xs font-semibold cursor-pointer transition-all"
+              title="Atualizar status do servidor"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${isLoadingStatus ? 'animate-spin text-[#00ff7f]' : ''}`} />
+              <span>Verificar Servidor</span>
+            </button>
+
+            <button
+              onClick={handleTriggerDailyNow}
+              disabled={isTriggeringDaily || !isConfigured}
+              className={`flex items-center gap-1.5 px-4 py-1.5 rounded-xl text-xs font-black transition-all cursor-pointer shadow-md ${
+                !isConfigured
+                  ? 'bg-zinc-900 text-zinc-600 border border-zinc-800 cursor-not-allowed'
+                  : 'bg-[#00ff7f] hover:bg-[#00ff7f]/90 text-black shadow-[#00ff7f]/20 active:scale-95'
+              }`}
+              title="Dispara a mensagem diária com os valores de hoje imediatamente para o seu Telegram"
+            >
+              <Zap className="w-3.5 h-3.5 fill-black" />
+              <span>{isTriggeringDaily ? 'Enviando...' : '⚡ Disparar Relatório de Hoje Agora'}</span>
+            </button>
+          </div>
+        </div>
+
+        {dailyTriggerFeedback && (
+          <div
+            className={`p-3.5 rounded-xl border text-xs flex items-start gap-2.5 leading-relaxed ${
+              dailyTriggerFeedback.success
+                ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300'
+                : 'bg-red-500/10 border-red-500/30 text-red-300'
+            }`}
+          >
+            {dailyTriggerFeedback.success ? (
+              <CheckCheck className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+            ) : (
+              <AlertCircle className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
+            )}
+            <div>{dailyTriggerFeedback.message}</div>
+          </div>
+        )}
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+          {/* Card 1: Horário Atual no Servidor */}
+          <div className="p-3.5 rounded-xl bg-black/60 border border-zinc-850 space-y-1">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 block flex items-center gap-1.5">
+              <Clock className="w-3 h-3 text-[#00ff7f]" />
+              Hora de Brasília / Fortaleza
+            </span>
+            <div className="flex items-baseline gap-2">
+              <span className="text-xl font-black font-mono text-white">
+                {serverTime}
+              </span>
+              <span className="text-[10px] text-zinc-500 font-mono">
+                {serverDate || new Date().toISOString().split('T')[0]}
+              </span>
+            </div>
+            <span className="text-[10px] text-zinc-500 block">
+              Horário configurado: <b>{scheduledTime}</b>
+            </span>
+          </div>
+
+          {/* Card 2: Status do Envio de Hoje */}
+          <div
+            className={`p-3.5 rounded-xl border space-y-1 ${
+              isSentToday
+                ? 'bg-emerald-950/20 border-emerald-500/30 text-emerald-300'
+                : enabled
+                ? 'bg-amber-950/20 border-amber-500/30 text-amber-300'
+                : 'bg-zinc-950 border-zinc-850 text-zinc-400'
+            }`}
+          >
+            <span className="text-[10px] font-bold uppercase tracking-wider block flex items-center gap-1.5">
+              <ShieldCheck className="w-3 h-3 text-[#00ff7f]" />
+              Status de Envio (Hoje)
+            </span>
+            <div className="text-sm font-bold truncate">
+              {isSentToday
+                ? '✅ Enviado com Sucesso Hoje'
+                : enabled
+                ? '⏳ Pendente / Aguardando'
+                : 'Bot Desativado'}
+            </div>
+            <span className="text-[10px] text-zinc-400 block truncate">
+              {isSentToday
+                ? `Disparado em ${config.lastSentDate}`
+                : enabled
+                ? `Programado para ${scheduledTime}`
+                : 'Ative o bot para receber'}
+            </span>
+          </div>
+
+          {/* Card 3: Próxima Execução */}
+          <div className="p-3.5 rounded-xl bg-black/60 border border-zinc-850 space-y-1">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 block flex items-center gap-1.5">
+              <Calendar className="w-3 h-3 text-sky-400" />
+              Próximo Disparo
+            </span>
+            <div className="text-sm font-bold text-white truncate">
+              {serverStatus?.nextRun || (enabled ? `Hoje às ${scheduledTime}` : 'Desativado')}
+            </div>
+            <span className="text-[10px] text-zinc-500 block">
+              1 disparo diário por usuário
+            </span>
+          </div>
+
+          {/* Card 4: Conexão com Telegram */}
+          <div className="p-3.5 rounded-xl bg-black/60 border border-zinc-850 space-y-1">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 block flex items-center gap-1.5">
+              <Bot className="w-3 h-3 text-[#00ff7f]" />
+              Conexão com Robô
+            </span>
+            <div className="text-sm font-bold text-white truncate">
+              {isConfigured ? (chatName || `Chat ${chatId}`) : 'Não Configurado'}
+            </div>
+            <span className="text-[10px] text-zinc-500 block truncate">
+              {botToken ? 'Token salvo no banco' : 'Cole o Token do Bot'}
+            </span>
+          </div>
+        </div>
+
+        {/* Explicação e Dica de Solução */}
+        <div className="p-3 rounded-xl bg-zinc-950/80 border border-zinc-850 flex items-start gap-2.5 text-xs text-zinc-400">
+          <Info className="w-4 h-4 text-[#00ff7f] shrink-0 mt-0.5" />
+          <div className="leading-relaxed">
+            <b className="text-zinc-200">Como funciona o envio diário:</b> O servidor do sistema mantém uma rotina que verifica o relógio do Brasil. Todos os dias às <b>{scheduledTime}</b> ele monta automaticamente o resumo financeiro de <b>{summary.monthName}</b> ({formatCurrency(summary.availableAmount)} disponível) e entrega diretamente na sua conversa do Telegram. Se o horário da manhã foi perdido por instabilidade ou reinício, basta clicar no botão <b>⚡ Disparar Relatório de Hoje Agora</b> acima para receber na hora.
           </div>
         </div>
       </div>

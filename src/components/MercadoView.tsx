@@ -16,8 +16,9 @@ import {
   RefreshCw,
   Copy,
   CheckCheck,
+  BarChart3,
 } from 'lucide-react';
-import { MarketItem } from '../types';
+import { MarketItem, MarketPriceSearchRecord } from '../types';
 import { formatCurrency } from '../utils/formatters';
 import { DEFAULT_MARKET_ITEMS } from '../data/initialData';
 import { fetchMarketItemPrice } from '../utils/marketPricing';
@@ -27,6 +28,8 @@ interface MercadoViewProps {
   onAddMarketItem: (item: Omit<MarketItem, 'id' | 'createdAt'>) => Promise<any>;
   onUpdateMarketItem: (id: string, updates: Partial<MarketItem>) => Promise<any>;
   onDeleteMarketItem: (id: string) => Promise<any>;
+  onRecordMarketSearch?: (record: Omit<MarketPriceSearchRecord, 'id'>) => Promise<any>;
+  onNavigateToReports?: () => void;
 }
 
 const CATEGORIES = [
@@ -57,6 +60,8 @@ export const MercadoView: React.FC<MercadoViewProps> = ({
   onAddMarketItem,
   onUpdateMarketItem,
   onDeleteMarketItem,
+  onRecordMarketSearch,
+  onNavigateToReports,
 }) => {
   const [name, setName] = useState('');
   const [category, setCategory] = useState(CATEGORIES[0]);
@@ -180,6 +185,32 @@ export const MercadoView: React.FC<MercadoViewProps> = ({
     }
   };
 
+  // Helper para salvar o registro da cotação no histórico/relatório
+  const recordSearchInHistory = async (item: MarketItem, data: any) => {
+    if (!onRecordMarketSearch) return;
+    try {
+      await onRecordMarketSearch({
+        itemId: item.id,
+        itemName: item.name,
+        category: item.category,
+        timestamp: data.timestamp || new Date().toISOString(),
+        date: data.date || new Date().toLocaleDateString('pt-BR'),
+        time: data.time || new Date().toLocaleTimeString('pt-BR'),
+        lowestPrice: data.lowestPrice,
+        cheapestSupermarket: data.cheapestSupermarket,
+        highestPrice: data.highestPrice || data.lowestPrice,
+        mostExpensiveSupermarket: data.mostExpensiveSupermarket || 'São Luiz',
+        priceSpread: data.priceSpread || 0,
+        variationPercentage: data.variationPercentage || 0,
+        averagePrice: data.averagePrice || data.lowestPrice,
+        comparisons: data.comparisons || [],
+        source: data.source,
+      });
+    } catch (recErr) {
+      console.warn('Erro ao salvar cotação no relatório de mercado:', recErr);
+    }
+  };
+
   // Search individual price
   const handleSearchItemPrice = async (item: MarketItem) => {
     setSearchingId(item.id);
@@ -189,8 +220,17 @@ export const MercadoView: React.FC<MercadoViewProps> = ({
       await onUpdateMarketItem(item.id, {
         lowestPrice: data.lowestPrice,
         cheapestSupermarket: data.cheapestSupermarket,
+        highestPrice: data.highestPrice,
+        mostExpensiveSupermarket: data.mostExpensiveSupermarket,
+        priceSpread: data.priceSpread,
+        variationPercentage: data.variationPercentage,
+        lastSearchTimestamp: data.timestamp,
+        lastSearchDate: data.date,
+        lastSearchTime: data.time,
         comparisons: data.comparisons,
       });
+
+      await recordSearchInHistory(item, data);
     } catch (err: any) {
       console.error(err);
       setError(`Erro ao pesquisar preços para "${item.name}": ${err.message || err}`);
@@ -227,11 +267,23 @@ export const MercadoView: React.FC<MercadoViewProps> = ({
             const bulkData = JSON.parse(bulkText);
             if (bulkData.success && Array.isArray(bulkData.results) && bulkData.results.length > 0) {
               for (const r of bulkData.results) {
+                const targetItem = targets.find((t) => t.id === r.id);
                 await onUpdateMarketItem(r.id, {
                   lowestPrice: r.lowestPrice,
                   cheapestSupermarket: r.cheapestSupermarket,
+                  highestPrice: r.highestPrice,
+                  mostExpensiveSupermarket: r.mostExpensiveSupermarket,
+                  priceSpread: r.priceSpread,
+                  variationPercentage: r.variationPercentage,
+                  lastSearchTimestamp: r.timestamp || new Date().toISOString(),
+                  lastSearchDate: r.date || new Date().toLocaleDateString('pt-BR'),
+                  lastSearchTime: r.time || new Date().toLocaleTimeString('pt-BR'),
                   comparisons: r.comparisons,
                 });
+
+                if (targetItem) {
+                  await recordSearchInHistory(targetItem, r);
+                }
               }
               bulkSucceeded = true;
             }
@@ -252,8 +304,17 @@ export const MercadoView: React.FC<MercadoViewProps> = ({
             await onUpdateMarketItem(item.id, {
               lowestPrice: data.lowestPrice,
               cheapestSupermarket: data.cheapestSupermarket,
+              highestPrice: data.highestPrice,
+              mostExpensiveSupermarket: data.mostExpensiveSupermarket,
+              priceSpread: data.priceSpread,
+              variationPercentage: data.variationPercentage,
+              lastSearchTimestamp: data.timestamp,
+              lastSearchDate: data.date,
+              lastSearchTime: data.time,
               comparisons: data.comparisons,
             });
+
+            await recordSearchInHistory(item, data);
           } catch (itemErr) {
             console.warn(`[Mercado] Erro ao cotar item "${item.name}":`, itemErr);
           }
@@ -312,6 +373,17 @@ export const MercadoView: React.FC<MercadoViewProps> = ({
         </div>
 
         <div className="flex items-center gap-2 flex-wrap">
+          {onNavigateToReports && (
+            <button
+              onClick={onNavigateToReports}
+              className="flex items-center gap-1.5 bg-zinc-900 border border-zinc-800 hover:border-[#00ff7f]/50 hover:text-white text-zinc-300 px-3 py-2.5 rounded-xl font-bold text-xs transition-all cursor-pointer"
+              title="Abrir aba de relatórios e histórico detalhado de cotações"
+            >
+              <BarChart3 className="w-3.5 h-3.5 text-[#00ff7f]" />
+              <span>Ver Relatório de Mercado</span>
+            </button>
+          )}
+
           {marketItems.length > 0 && (
             <>
               <button
@@ -603,9 +675,21 @@ export const MercadoView: React.FC<MercadoViewProps> = ({
                         <h4 className="text-sm font-bold text-white leading-snug truncate">
                           {item.name}
                         </h4>
-                        <span className="inline-block text-[10px] font-semibold text-zinc-500 bg-zinc-900 px-2 py-0.5 rounded mt-1">
-                          {item.category}
-                        </span>
+                        <div className="flex items-center gap-2 flex-wrap mt-1">
+                          <span className="text-[10px] font-semibold text-zinc-500 bg-zinc-900 px-2 py-0.5 rounded">
+                            {item.category}
+                          </span>
+                          {item.lastSearchDate && item.lastSearchTime && (
+                            <span className="text-[10px] text-zinc-500 font-mono">
+                              🕒 {item.lastSearchDate} {item.lastSearchTime}
+                            </span>
+                          )}
+                          {item.priceSpread !== undefined && item.priceSpread > 0 && (
+                            <span className="text-[10px] font-bold text-amber-400 bg-amber-500/10 border border-amber-500/20 px-1.5 py-0.5 rounded">
+                              Variação: R$ {item.priceSpread.toFixed(2)} (+{item.variationPercentage}%)
+                            </span>
+                          )}
+                        </div>
                       </div>
                     </div>
 

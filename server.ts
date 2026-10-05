@@ -245,110 +245,176 @@ Responda ESTRITAMENTE em formato JSON com a seguinte estrutura:
     }
   });
 
-  // Helper para estimar preços realistas nos supermercados de Fortaleza preservando a especificação exata do usuário
+  // Helper para estimar preços realistas nos supermercados de Fortaleza com variação real e vantagens por categoria
   function generateMarketBenchmarkPrices(itemName: string, category?: string) {
     const rawName = (itemName || 'Item').trim();
     const normName = rawName.toLowerCase();
     const normCat = (category || 'Outros').trim();
 
-    let basePrice = 8.5;
-
-    // Detecta multiplicadores de tamanho/volume informados pelo usuário
     let multiplier = 1;
     if (normName.includes('5l') || normName.includes('5 l') || normName.includes('5 litro') || normName.includes('5 litros')) {
-      multiplier = 4.0;
-    } else if (normName.includes('3l') || normName.includes('3 l') || normName.includes('3 litro') || normName.includes('3 litros')) {
-      multiplier = 2.5;
-    } else if (normName.includes('2l') || normName.includes('2 l') || normName.includes('2 litro') || normName.includes('2 litros')) {
-      multiplier = 1.8;
-    } else if (normName.includes('5kg') || normName.includes('5 kg') || normName.includes('5 quilo')) {
-      multiplier = 4.5;
+      multiplier = 4.2;
+    } else if (normName.includes('3l') || normName.includes('3 l') || normName.includes('3 litro')) {
+      multiplier = 2.6;
+    } else if (normName.includes('2l') || normName.includes('2 l') || normName.includes('2 litro')) {
+      multiplier = 1.85;
     } else if (normName.includes('10kg') || normName.includes('10 kg')) {
-      multiplier = 9.0;
+      multiplier = 9.2;
+    } else if (normName.includes('5kg') || normName.includes('5 kg') || normName.includes('5 quilo')) {
+      multiplier = 4.6;
     } else if (normName.includes('fardo') || normName.includes('caixa')) {
-      multiplier = 8.0;
-    } else if (normName.includes('30un') || normName.includes('30 ovos') || normName.includes('cartela')) {
-      multiplier = 1.0;
+      multiplier = 7.5;
+    } else if (normName.includes('500g') || normName.includes('500 g')) {
+      multiplier = 0.55;
+    } else if (normName.includes('250g') || normName.includes('250 g')) {
+      multiplier = 0.32;
     }
 
-    // Identificação de preço base por tipo de produto
+    let basePrice = 9.5;
     if (normName.includes('sabão líquido') || normName.includes('sabao liquido') || normName.includes('lava roupas líquido') || normName.includes('lava roupas liquido')) {
-      basePrice = multiplier > 1 ? 8.2 * multiplier : 14.5; // ~R$ 32,80 para 5L
-    } else if (normName.includes('sabão em pó') || normName.includes('sabao em po') || normName.includes('omo')) {
-      basePrice = multiplier > 1 ? 7.5 * multiplier : 12.9;
-    } else if (normName.includes('leite')) {
-      basePrice = 5.49 * multiplier;
-    } else if (normName.includes('café') || normName.includes('cafe')) {
-      basePrice = 10.89 * multiplier;
+      basePrice = multiplier > 1 ? 7.8 * multiplier : 14.9;
+    } else if (normName.includes('sabão em pó') || normName.includes('sabao em po') || normName.includes('omo') || normName.includes('tixan') || normName.includes('brilhante')) {
+      basePrice = multiplier > 1 ? 7.2 * multiplier : 13.5;
+    } else if (normName.includes('leite') || normName.includes('betânia') || normName.includes('camponesa') || normName.includes('itambé')) {
+      basePrice = 5.69 * multiplier;
+    } else if (normName.includes('café') || normName.includes('cafe') || normName.includes('santa clara') || normName.includes('pilão') || normName.includes('maratá')) {
+      basePrice = 11.29 * multiplier;
     } else if (normName.includes('queijo') || normName.includes('coalho')) {
-      basePrice = 38.9;
-    } else if (normName.includes('cuscuz') || normName.includes('flocão') || normName.includes('flocao')) {
-      basePrice = 2.49 * multiplier;
-    } else if (normName.includes('tapioca') || normName.includes('goma')) {
-      basePrice = 6.9 * multiplier;
+      basePrice = 39.9 * multiplier;
+    } else if (normName.includes('cuscuz') || normName.includes('flocão') || normName.includes('flocao') || normName.includes('milharina')) {
+      basePrice = 2.59 * multiplier;
+    } else if (normName.includes('tapioca') || normName.includes('goma') || normName.includes('farinha')) {
+      basePrice = 6.99 * multiplier;
     } else if (normName.includes('cajuína') || normName.includes('cajuina') || normName.includes('são geraldo')) {
-      basePrice = 8.99 * multiplier;
-    } else if (normName.includes('carne') || normName.includes('alcatra') || normName.includes('picanha') || normName.includes('sol')) {
-      basePrice = 45.9 * multiplier;
-    } else if (normName.includes('feijão') || normName.includes('feijao')) {
-      basePrice = 8.2 * multiplier;
-    } else if (normName.includes('arroz')) {
-      basePrice = 5.79 * multiplier;
+      basePrice = 9.29 * multiplier;
+    } else if (normName.includes('carne') || normName.includes('alcatra') || normName.includes('picanha') || normName.includes('patinho') || normName.includes('sol')) {
+      basePrice = 44.9 * multiplier;
+    } else if (normName.includes('frango') || normName.includes('peito') || normName.includes('coxa') || normName.includes('filé')) {
+      basePrice = 19.8 * multiplier;
+    } else if (normName.includes('feijão') || normName.includes('feijao') || normName.includes('corda') || normName.includes('carioca')) {
+      basePrice = 8.49 * multiplier;
+    } else if (normName.includes('arroz') || normName.includes('tio joão') || normName.includes('camil')) {
+      basePrice = 5.99 * multiplier;
     } else if (normName.includes('açúcar') || normName.includes('acucar')) {
-      basePrice = 4.29 * multiplier;
-    } else if (normName.includes('óleo') || normName.includes('oleo')) {
-      basePrice = 6.49 * multiplier;
+      basePrice = 4.49 * multiplier;
+    } else if (normName.includes('óleo') || normName.includes('oleo') || normName.includes('soya') || normName.includes('liza')) {
+      basePrice = 6.79 * multiplier;
     } else if (normName.includes('ovo') || normName.includes('ovos')) {
-      basePrice = 17.9;
-    } else if (normName.includes('frango') || normName.includes('peito')) {
-      basePrice = 19.9 * multiplier;
-    } else if (normName.includes('cerveja')) {
-      basePrice = 4.19 * multiplier;
+      basePrice = 18.5;
+    } else if (normName.includes('cerveja') || normName.includes('heineken') || normName.includes('brahma') || normName.includes('amstel')) {
+      basePrice = 4.39 * multiplier;
+    } else if (normName.includes('refrigerante') || normName.includes('coca') || normName.includes('guaraná')) {
+      basePrice = 8.5 * multiplier;
     } else if (normName.includes('pão') || normName.includes('pao')) {
-      basePrice = 9.5 * multiplier;
-    } else if (normName.includes('detergente')) {
-      basePrice = 2.49 * multiplier;
-    } else if (normName.includes('shampoo')) {
-      basePrice = 15.9 * multiplier;
+      basePrice = 9.9 * multiplier;
+    } else if (normName.includes('detergente') || normName.includes('ypê') || normName.includes('limpol')) {
+      basePrice = 2.69 * multiplier;
+    } else if (normName.includes('desinfetante') || normName.includes('amaciante') || normName.includes('sanitária') || normName.includes('sanitaria')) {
+      basePrice = 6.89 * multiplier;
+    } else if (normName.includes('shampoo') || normName.includes('sabonete') || normName.includes('creme dental') || normName.includes('pasta')) {
+      basePrice = 12.9 * multiplier;
     } else {
-      if (normCat.includes('Açougue') || normCat.includes('Peixaria')) basePrice = 36.0 * multiplier;
-      else if (normCat.includes('Frios') || normCat.includes('Laticínios')) basePrice = 16.5 * multiplier;
-      else if (normCat.includes('Hortifrúti')) basePrice = 6.5 * multiplier;
-      else if (normCat.includes('Padaria')) basePrice = 12.0 * multiplier;
-      else if (normCat.includes('Bebidas')) basePrice = 7.5 * multiplier;
-      else if (normCat.includes('Higiene')) basePrice = 11.0 * multiplier;
-      else if (normCat.includes('Limpeza')) basePrice = 8.5 * multiplier;
-      else basePrice = 9.0 * multiplier;
+      if (normCat.includes('Açougue') || normCat.includes('Peixaria')) basePrice = 37.0 * multiplier;
+      else if (normCat.includes('Frios') || normCat.includes('Laticínios')) basePrice = 17.5 * multiplier;
+      else if (normCat.includes('Hortifrúti')) basePrice = 6.8 * multiplier;
+      else if (normCat.includes('Padaria')) basePrice = 12.5 * multiplier;
+      else if (normCat.includes('Bebidas')) basePrice = 7.9 * multiplier;
+      else if (normCat.includes('Higiene')) basePrice = 11.5 * multiplier;
+      else if (normCat.includes('Limpeza')) basePrice = 8.9 * multiplier;
+      else basePrice = 9.8 * multiplier;
     }
 
-    const stores = [
-      { supermarket: 'Atacadão', factor: 0.90, brandTag: 'Oferta Atacarejo / Econômica' },
-      { supermarket: 'Mercadão', factor: 0.95, brandTag: 'Marca Popular' },
-      { supermarket: 'CenterBox', factor: 0.98, brandTag: 'Marca Tradicional' },
-      { supermarket: 'Lagoa', factor: 1.0, brandTag: 'Marca Cearense / Tradicional' },
-      { supermarket: 'Frangolândia', factor: 1.02, brandTag: 'Mais Vendida' },
-      { supermarket: 'Guará', factor: 1.12, brandTag: 'Linha Selecionada' },
-      { supermarket: 'São Luiz', factor: 1.16, brandTag: 'Linha Premium / Especial' },
+    let hash = 0;
+    for (let i = 0; i < normName.length; i++) {
+      hash = (hash << 5) - hash + normName.charCodeAt(i);
+      hash |= 0;
+    }
+    const positiveHash = Math.abs(hash);
+
+    const isCleaning = normCat.includes('Limpeza') || normName.includes('sabão') || normName.includes('sabao') || normName.includes('detergente') || normName.includes('amaciante') || normName.includes('desinfetante');
+    const isDairyOrMeat = normCat.includes('Frios') || normCat.includes('Laticínios') || normCat.includes('Açougue') || normName.includes('queijo') || normName.includes('leite') || normName.includes('carne') || normName.includes('frango');
+    const isHortifrutiOrRegional = normCat.includes('Hortifrúti') || normName.includes('cuscuz') || normName.includes('tapioca') || normName.includes('flocão') || normName.includes('feijão') || normName.includes('tomate') || normName.includes('cebola');
+    const isBulkOrAtacado = multiplier >= 3.0 || normName.includes('5l') || normName.includes('5kg') || normName.includes('fardo') || normName.includes('caixa');
+
+    let atacadaoFactor = isBulkOrAtacado ? 0.88 : (0.91 + (positiveHash % 5) * 0.01);
+    let mercadaoFactor = isCleaning ? 0.87 : (0.90 + ((positiveHash >> 2) % 6) * 0.01);
+    let centerBoxFactor = isHortifrutiOrRegional ? 0.86 : (0.93 + ((positiveHash >> 3) % 5) * 0.01);
+    let frangolandiaFactor = isDairyOrMeat ? 0.87 : (0.94 + ((positiveHash >> 4) % 5) * 0.01);
+    let lagoaFactor = (normName.includes('café') || normName.includes('cafe') || normName.includes('maratá') || normName.includes('santa clara')) ? 0.89 : (0.96 + ((positiveHash >> 5) % 5) * 0.01);
+    let guaraFactor = 1.05 + ((positiveHash >> 1) % 6) * 0.015;
+    let saoLuizFactor = 1.12 + ((positiveHash >> 3) % 7) * 0.015;
+
+    const promoWinnerIndex = positiveHash % 5;
+    if (promoWinnerIndex === 0 && !isDairyOrMeat && !isHortifrutiOrRegional) atacadaoFactor = Math.min(atacadaoFactor, 0.87);
+    if (promoWinnerIndex === 1 && isCleaning) mercadaoFactor = Math.min(mercadaoFactor, 0.86);
+    if (promoWinnerIndex === 2 && (isHortifrutiOrRegional || normCat.includes('Padaria'))) centerBoxFactor = Math.min(centerBoxFactor, 0.85);
+    if (promoWinnerIndex === 3 && isDairyOrMeat) frangolandiaFactor = Math.min(frangolandiaFactor, 0.86);
+    if (promoWinnerIndex === 4 && (normName.includes('café') || normCat.includes('Bebidas'))) lagoaFactor = Math.min(lagoaFactor, 0.88);
+
+    const storeConfigs = [
+      { supermarket: 'Atacadão', factor: atacadaoFactor, brandSpec: isBulkOrAtacado ? 'Embalagem Econômica Atacado' : 'Preço de Fardo / Atacado', badge: atacadaoFactor <= 0.89 ? 'Melhor Preço Atacado' : undefined },
+      { supermarket: 'Mercadão', factor: mercadaoFactor, brandSpec: isCleaning ? 'Oferta Limpeza Mercadão' : 'Preço Popular', badge: mercadaoFactor <= 0.88 ? 'Oferta Imbatível' : undefined },
+      { supermarket: 'CenterBox', factor: centerBoxFactor, brandSpec: isHortifrutiOrRegional ? 'Seleção Cearense Regional' : 'Marca Tradicional', badge: centerBoxFactor <= 0.88 ? 'Campeão Regional' : undefined },
+      { supermarket: 'Lagoa', factor: lagoaFactor, brandSpec: 'Encarte da Semana Lagoa', badge: lagoaFactor <= 0.90 ? 'Oferta de Encarte' : undefined },
+      { supermarket: 'Frangolândia', factor: frangolandiaFactor, brandSpec: isDairyOrMeat ? 'Especial Frios & Carnes' : 'Mais Vendida', badge: frangolandiaFactor <= 0.88 ? 'Oferta Especial' : undefined },
+      { supermarket: 'Guará', factor: guaraFactor, brandSpec: 'Linha Selecionada Guará', badge: undefined },
+      { supermarket: 'São Luiz', factor: saoLuizFactor, brandSpec: 'Linha Premium São Luiz', badge: undefined },
     ];
 
-    const comparisons = stores.map((s) => {
-      const rawPrice = Number((basePrice * s.factor).toFixed(2));
+    const comparisons = storeConfigs.map((s) => {
+      let price = Number((basePrice * s.factor).toFixed(2));
+      const intPart = Math.floor(price);
+      const decimalPart = price - intPart;
+      let roundedDec = 0.99;
+      if (decimalPart < 0.35) roundedDec = 0.29;
+      else if (decimalPart < 0.65) roundedDec = 0.49;
+      else if (decimalPart < 0.85) roundedDec = 0.79;
+      else if (decimalPart < 0.95) roundedDec = 0.89;
+      else roundedDec = 0.99;
+
+      price = Number((intPart + roundedDec).toFixed(2));
+      if (price <= 0) price = 1.99;
+
       return {
         supermarket: s.supermarket,
-        productName: `${rawName} (${s.brandTag})`,
-        price: rawPrice,
+        productName: `${rawName} (${s.brandSpec})`,
+        price,
         isAvailable: true,
+        badge: s.badge,
+        originalPrice: s.factor < 0.92 ? Number((price * 1.15).toFixed(2)) : undefined,
       };
     });
 
     const lowestPrice = Math.min(...comparisons.map((c) => c.price));
     const cheapest = comparisons.find((c) => c.price === lowestPrice);
+    const highestPrice = Math.max(...comparisons.map((c) => c.price));
+    const mostExpensive = comparisons.find((c) => c.price === highestPrice);
+
+    const priceSpread = Number((highestPrice - lowestPrice).toFixed(2));
+    const variationPercentage = lowestPrice > 0 ? Number((((highestPrice - lowestPrice) / lowestPrice) * 100).toFixed(1)) : 0;
+    const averagePrice = Number((comparisons.reduce((sum, c) => sum + c.price, 0) / comparisons.length).toFixed(2));
+
+    if (cheapest) {
+      cheapest.badge = 'Menor Preço';
+    }
+
+    const now = new Date();
+    const dateFormatted = now.toLocaleDateString('pt-BR');
+    const timeFormatted = now.toLocaleTimeString('pt-BR');
 
     return {
       itemName: rawName,
       category: normCat,
       lowestPrice,
       cheapestSupermarket: cheapest ? cheapest.supermarket : 'Atacadão',
+      highestPrice,
+      mostExpensiveSupermarket: mostExpensive ? mostExpensive.supermarket : 'São Luiz',
+      priceSpread,
+      variationPercentage,
+      averagePrice,
+      timestamp: now.toISOString(),
+      date: dateFormatted,
+      time: timeFormatted,
       comparisons,
     };
   }
@@ -382,7 +448,8 @@ ATENÇÃO CRUCIAL ÀS REGRAS:
 1. Respeite com absoluta fidelidade o nome, tipo, volume ou tamanho pedido pelo usuário. Por exemplo: se o usuário pediu "Sabão Líquido 5 Litro", a cotação deve ser exclusivamente de sabão líquido em embalagem de 5 litros (NÃO pode virar sabão em pó nem embalagem pequena).
 2. Cada supermercado deve ter uma oferta realista com marcas reais vendidas no Ceará (ex: marcas populares, regionais ou líderes de mercado como Omo, Tixan Ypê, Baby Soft, Teiú, Betânia, Santa Clara, Fortaleza, etc.).
 3. Os 7 supermercados a cotar são: Atacadão, Mercadão, CenterBox, Lagoa, Frangolândia, Guará, São Luiz.
-4. "lowestPrice" deve ser o menor valor encontrado e "cheapestSupermarket" o nome do supermercado correspondente.
+4. Diferentes supermercados podem ter o menor preço de acordo com promoções reais de encarte (ex: CenterBox em hortifrúti/regionais, Frangolândia em carnes/laticínios, Mercadão em limpeza, Atacadão em fardos/atacado).
+5. "lowestPrice" deve ser o menor valor encontrado e "cheapestSupermarket" o nome do supermercado correspondente.
 
 Responda ESTRITAMENTE em formato JSON com este schema:
 {
@@ -390,6 +457,8 @@ Responda ESTRITAMENTE em formato JSON com este schema:
   "category": "${category || 'Geral'}",
   "lowestPrice": 24.90,
   "cheapestSupermarket": "Atacadão",
+  "highestPrice": 45.90,
+  "mostExpensiveSupermarket": "São Luiz",
   "comparisons": [
     { "supermarket": "Atacadão", "productName": "Ex: Sabão Líquido Teiú Galão 5L", "price": 24.90, "isAvailable": true },
     { "supermarket": "Mercadão", "productName": "Ex: Sabão Líquido Baby Soft 5L", "price": 27.50, "isAvailable": true },
@@ -401,8 +470,8 @@ Responda ESTRITAMENTE em formato JSON com este schema:
   ]
 }`;
 
-        // Modelos a tentar em ordem de velocidade e disponibilidade
-        const models = ['gemini-3.1-flash-lite', 'gemini-3.8-flash'];
+        // Modelos a tentar em ordem de disponibilidade (gemini-flash-latest primeiro)
+        const models = ['gemini-flash-latest', 'gemini-3.8-flash'];
         for (const m of models) {
           try {
             console.log(`[Mercado Cotação] Cotando "${itemName}" com modelo ${m}...`);
@@ -416,18 +485,39 @@ Responda ESTRITAMENTE em formato JSON com este schema:
                   responseMimeType: 'application/json',
                 },
               },
-              7000
+              4500
             );
 
             if (response && response.text) {
               const cleanedText = response.text.trim().replace(/^```json\s*/i, '').replace(/\s*```$/i, '').trim();
               const parsed = JSON.parse(cleanedText);
               if (parsed && parsed.lowestPrice && Array.isArray(parsed.comparisons) && parsed.comparisons.length > 0) {
+                const now = new Date();
+                const comparisons = parsed.comparisons;
+                const lowest = parsed.lowestPrice || Math.min(...comparisons.map((c: any) => c.price));
+                const highest = parsed.highestPrice || Math.max(...comparisons.map((c: any) => c.price));
+                const cheapestObj = comparisons.find((c: any) => c.price === lowest);
+                const expensiveObj = comparisons.find((c: any) => c.price === highest);
+
+                const enrichedData = {
+                  ...parsed,
+                  lowestPrice: lowest,
+                  cheapestSupermarket: parsed.cheapestSupermarket || (cheapestObj ? cheapestObj.supermarket : 'Atacadão'),
+                  highestPrice: highest,
+                  mostExpensiveSupermarket: parsed.mostExpensiveSupermarket || (expensiveObj ? expensiveObj.supermarket : 'São Luiz'),
+                  priceSpread: Number((highest - lowest).toFixed(2)),
+                  variationPercentage: lowest > 0 ? Number((((highest - lowest) / lowest) * 100).toFixed(1)) : 0,
+                  averagePrice: Number((comparisons.reduce((s: number, c: any) => s + c.price, 0) / comparisons.length).toFixed(2)),
+                  timestamp: now.toISOString(),
+                  date: now.toLocaleDateString('pt-BR'),
+                  time: now.toLocaleTimeString('pt-BR'),
+                };
+
                 console.log(`[Mercado Cotação] Cotação obtida com sucesso via ${m} para "${itemName}"!`);
                 return res.json({
                   success: true,
                   source: 'gemini',
-                  data: parsed,
+                  data: enrichedData,
                 });
               }
             }
@@ -568,10 +658,12 @@ Retorne ESTRITAMENTE em formato JSON com o schema:
     userId: string;
     botToken: string;
     chatId: string;
-    scheduledTime: string; // "HH:MM"
+    scheduledTime: string; // "HH:MM", ex: "09:00"
     enabled: boolean;
     messageText: string;
-    lastSentDate?: string;
+    registeredDate?: string; // "YYYY-MM-DD"
+    registeredMinutes?: number;
+    lastSentDate?: string; // "YYYY-MM-DD"
     lastSentTimestamp?: string;
     lastSentStatus?: 'success' | 'error';
     lastSentError?: string;
@@ -580,13 +672,36 @@ Retorne ESTRITAMENTE em formato JSON com o schema:
   const telegramSchedules = new Map<string, RegisteredTelegramSchedule>();
   const SCHEDULES_FILE = path.join(process.cwd(), 'telegram_schedules.json');
 
+  function normalizeTimeString(timeStr: any): string {
+    if (!timeStr || typeof timeStr !== 'string') return '09:00';
+    const clean = timeStr.trim();
+    const parts = clean.split(':');
+    if (parts.length >= 2) {
+      const h = parseInt(parts[0], 10);
+      const m = parseInt(parts[1], 10);
+      if (!isNaN(h) && !isNaN(m)) {
+        return `${String(Math.min(23, Math.max(0, h))).padStart(2, '0')}:${String(Math.min(59, Math.max(0, m))).padStart(2, '0')}`;
+      }
+    }
+    return '09:00';
+  }
+
+  function timeToMinutes(hhmm: string): number {
+    const norm = normalizeTimeString(hhmm);
+    const [h, m] = norm.split(':').map(Number);
+    return (h || 0) * 60 + (m || 0);
+  }
+
   function loadPersistedSchedules() {
     try {
       if (fs.existsSync(SCHEDULES_FILE)) {
         const raw = fs.readFileSync(SCHEDULES_FILE, 'utf-8');
         const list: RegisteredTelegramSchedule[] = JSON.parse(raw);
         if (Array.isArray(list)) {
-          list.forEach((s) => telegramSchedules.set(s.userId, s));
+          list.forEach((s) => {
+            s.scheduledTime = normalizeTimeString(s.scheduledTime);
+            telegramSchedules.set(s.userId, s);
+          });
           console.log(`[Telegram Scheduler] ${list.length} agendamento(s) carregados do disco.`);
         }
       }
@@ -608,7 +723,7 @@ Retorne ESTRITAMENTE em formato JSON com o schema:
   loadPersistedSchedules();
 
   // Helper para obter hora e data no fuso de Fortaleza/Brasil (UTC-3)
-  function getBrazilTimeNow(): { timeStr: string; dateStr: string } {
+  function getBrazilTimeNow(): { timeStr: string; dateStr: string; totalMinutes: number } {
     const now = new Date();
     const formatter = new Intl.DateTimeFormat('pt-BR', {
       timeZone: 'America/Fortaleza',
@@ -624,7 +739,8 @@ Retorne ESTRITAMENTE em formato JSON com o schema:
 
     const timeStr = `${getVal('hour')}:${getVal('minute')}`;
     const dateStr = `${getVal('year')}-${getVal('month')}-${getVal('day')}`;
-    return { timeStr, dateStr };
+    const totalMinutes = timeToMinutes(timeStr);
+    return { timeStr, dateStr, totalMinutes };
   }
 
   // Helper para sanitizar token e chatId do Telegram
@@ -645,6 +761,46 @@ Retorne ESTRITAMENTE em formato JSON com o schema:
     let id = String(raw).trim();
     id = id.replace(/^["'\s]+|["'\s]+$/g, '');
     return id;
+  }
+
+  // Helper de envio seguro para Telegram com fallback automático de texto puro se Markdown falhar
+  async function sendTelegramDirect(token: string, chatId: string, message: string): Promise<{ ok: boolean; messageId?: number; description?: string }> {
+    try {
+      let response = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          chat_id: chatId,
+          text: message,
+          parse_mode: 'Markdown',
+        }),
+      });
+      let data = await response.json();
+
+      if (!data.ok && data.description?.includes("can't parse entities")) {
+        console.warn('[Telegram] Erro de parsing Markdown, reenviando texto puro...');
+        response = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            chat_id: chatId,
+            text: message,
+          }),
+        });
+        data = await response.json();
+      }
+
+      return {
+        ok: Boolean(data.ok),
+        messageId: data.result?.message_id,
+        description: data.description,
+      };
+    } catch (e: any) {
+      return {
+        ok: false,
+        description: e.message || 'Erro de conexão com Telegram',
+      };
+    }
   }
 
   // 1. Detectar Chat ID automaticamente via getUpdates
@@ -757,53 +913,29 @@ Retorne ESTRITAMENTE em formato JSON com o schema:
         });
       }
 
-      let response = await fetch(`https://api.telegram.org/bot${cleanToken}/sendMessage`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          chat_id: cleanId,
-          text: message,
-          parse_mode: parseMode,
-        }),
-      });
+      const result = await sendTelegramDirect(cleanToken, cleanId, message);
 
-      let data = await response.json();
-
-      // Fallback: se falhar por formatação de markdown de caracteres especiais, reenvia sem parse_mode
-      if (!data.ok && data.description?.includes("can't parse entities")) {
-        console.warn('[Telegram] Erro de entidade Markdown, reenviando texto puro...');
-        response = await fetch(`https://api.telegram.org/bot${cleanToken}/sendMessage`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            chat_id: cleanId,
-            text: message,
-          }),
-        });
-        data = await response.json();
-      }
-
-      if (!data.ok) {
-        let friendlyErr = data.description || 'Erro ao enviar mensagem';
-        if (data.description?.includes('chat not found')) {
+      if (!result.ok) {
+        let friendlyErr = result.description || 'Erro ao enviar mensagem';
+        if (result.description?.includes('chat not found')) {
           friendlyErr = cleanId.startsWith('@')
             ? 'O Telegram não aceita @usuario para conversas privadas. Use o seu Chat ID numérico (ex: 123456789) detectado pelo botão "Detectar Meu Chat ID".'
             : 'Chat não encontrado. Você já iniciou a conversa com o bot no Telegram enviando uma mensagem ("Oi")?';
-        } else if (data.description?.includes('bot was blocked')) {
+        } else if (result.description?.includes('bot was blocked')) {
           friendlyErr = 'O bot foi bloqueado pelo usuário no seu Telegram.';
-        } else if (data.description?.includes('Unauthorized')) {
+        } else if (result.description?.includes('Unauthorized')) {
           friendlyErr = 'Token de bot inválido ou expirado. Verifique o token fornecido pelo @BotFather.';
         }
         return res.status(400).json({
           success: false,
           error: friendlyErr,
-          rawError: data.description,
+          rawError: result.description,
         });
       }
 
       return res.json({
         success: true,
-        messageId: data.result?.message_id,
+        messageId: result.messageId,
         sentAt: new Date().toISOString(),
       });
     } catch (err: any) {
@@ -818,7 +950,7 @@ Retorne ESTRITAMENTE em formato JSON com o schema:
   // 3. Registrar ou atualizar agendamento diário no servidor
   app.post('/api/telegram/register-schedule', (req, res) => {
     try {
-      const { userId = 'default_user', botToken, chatId, scheduledTime, enabled, messageText } = req.body;
+      const { userId = 'default_user', botToken, chatId, scheduledTime, enabled, messageText, forceSendToday } = req.body;
 
       if (!botToken || !chatId || !scheduledTime) {
         return res.status(400).json({
@@ -827,15 +959,20 @@ Retorne ESTRITAMENTE em formato JSON com o schema:
         });
       }
 
+      const { timeStr, dateStr, totalMinutes } = getBrazilTimeNow();
+      const normTime = normalizeTimeString(scheduledTime);
       const existing = telegramSchedules.get(userId);
+
       const schedule: RegisteredTelegramSchedule = {
         userId,
-        botToken: botToken.trim(),
-        chatId: String(chatId).trim(),
-        scheduledTime: scheduledTime.trim(),
+        botToken: cleanTelegramToken(botToken),
+        chatId: cleanTelegramChatId(chatId),
+        scheduledTime: normTime,
         enabled: Boolean(enabled),
         messageText: messageText || 'Você tem esse valor disponivel para gastar',
-        lastSentDate: existing?.lastSentDate,
+        registeredDate: existing?.registeredDate || dateStr,
+        registeredMinutes: existing?.registeredMinutes || totalMinutes,
+        lastSentDate: forceSendToday ? undefined : existing?.lastSentDate,
         lastSentTimestamp: existing?.lastSentTimestamp,
         lastSentStatus: existing?.lastSentStatus,
         lastSentError: existing?.lastSentError,
@@ -843,11 +980,13 @@ Retorne ESTRITAMENTE em formato JSON com o schema:
 
       telegramSchedules.set(userId, schedule);
       savePersistedSchedules();
-      console.log(`[Telegram Scheduler] Agendamento registrado para ${userId} às ${scheduledTime} (Ativo: ${enabled})`);
+      console.log(`[Telegram Scheduler] Agendamento registrado para '${userId}' às ${normTime} (Ativo: ${enabled}) | Hora BR: ${timeStr}`);
 
       return res.json({
         success: true,
         schedule,
+        serverTime: timeStr,
+        serverDate: dateStr,
       });
     } catch (err: any) {
       return res.status(500).json({ success: false, error: err.message });
@@ -857,61 +996,143 @@ Retorne ESTRITAMENTE em formato JSON com o schema:
   // 4. Consultar status do agendador
   app.get('/api/telegram/schedule-status/:userId', (req, res) => {
     const { userId } = req.params;
-    const schedule = telegramSchedules.get(userId);
-    const { timeStr, dateStr } = getBrazilTimeNow();
+    const schedule = telegramSchedules.get(userId) || telegramSchedules.get('default_user');
+    const { timeStr, dateStr, totalMinutes } = getBrazilTimeNow();
+
+    let isSentToday = false;
+    let isPendingToday = false;
+    let nextRun = 'Desativado';
+
+    if (schedule && schedule.enabled) {
+      isSentToday = schedule.lastSentDate === dateStr && schedule.lastSentStatus === 'success';
+      const schedMin = timeToMinutes(schedule.scheduledTime);
+      if (!isSentToday) {
+        if (totalMinutes < schedMin) {
+          isPendingToday = true;
+          nextRun = `Hoje às ${schedule.scheduledTime}`;
+        } else {
+          isPendingToday = true;
+          nextRun = `Em processamento hoje (${schedule.scheduledTime})`;
+        }
+      } else {
+        nextRun = `Amanhã às ${schedule.scheduledTime}`;
+      }
+    }
+
     return res.json({
       success: true,
       serverTime: timeStr,
       serverDate: dateStr,
+      isSentToday,
+      isPendingToday,
+      nextRun,
       schedule: schedule || null,
+      totalActiveSchedules: Array.from(telegramSchedules.values()).filter((s) => s.enabled).length,
     });
   });
 
-  // 5. Rotina de disparo diário no servidor (Verifica a cada 30 segundos)
+  // 5. Forçar disparo imediato do relatório do dia
+  app.post('/api/telegram/trigger-daily-now', async (req, res) => {
+    try {
+      const { userId = 'default_user', botToken, chatId, messageText } = req.body;
+      const targetSchedule = telegramSchedules.get(userId);
+
+      const tokenToUse = cleanTelegramToken(botToken || targetSchedule?.botToken);
+      const chatIdToUse = cleanTelegramChatId(chatId || targetSchedule?.chatId);
+      const textToUse = messageText || targetSchedule?.messageText || 'Você tem esse valor disponivel para gastar';
+
+      if (!tokenToUse || !chatIdToUse) {
+        return res.status(400).json({
+          success: false,
+          error: 'Credenciais do bot não encontradas para disparo imediato.',
+        });
+      }
+
+      const { timeStr, dateStr } = getBrazilTimeNow();
+      console.log(`[Telegram Scheduler] Disparo manual imediato solicitado para '${userId}' (${chatIdToUse}) às ${timeStr}`);
+
+      const result = await sendTelegramDirect(tokenToUse, chatIdToUse, textToUse);
+
+      if (result.ok) {
+        if (targetSchedule) {
+          targetSchedule.lastSentDate = dateStr;
+          targetSchedule.lastSentTimestamp = new Date().toISOString();
+          targetSchedule.lastSentStatus = 'success';
+          targetSchedule.lastSentError = undefined;
+          savePersistedSchedules();
+        }
+        return res.json({
+          success: true,
+          messageId: result.messageId,
+          sentDate: dateStr,
+          sentTime: timeStr,
+          sentTimestamp: new Date().toISOString(),
+        });
+      } else {
+        if (targetSchedule) {
+          targetSchedule.lastSentStatus = 'error';
+          targetSchedule.lastSentError = result.description;
+          savePersistedSchedules();
+        }
+        return res.status(400).json({
+          success: false,
+          error: result.description || 'Falha ao enviar mensagem no Telegram',
+        });
+      }
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  // 6. Rotina de disparo diário no servidor (Verifica a cada 15 segundos com janela robusta)
   setInterval(async () => {
     if (telegramSchedules.size === 0) return;
 
-    const { timeStr, dateStr } = getBrazilTimeNow();
+    const { timeStr, dateStr, totalMinutes } = getBrazilTimeNow();
 
     for (const [userId, item] of telegramSchedules.entries()) {
-      if (!item.enabled) continue;
+      if (!item.enabled || !item.botToken || !item.chatId) continue;
 
-      // Se o horário atual bate com o horário configurado e ainda não foi enviado hoje
-      if (item.scheduledTime === timeStr && item.lastSentDate !== dateStr) {
-        console.log(`[Telegram Scheduler] Disparando aviso diário para ${userId} (${item.chatId}) às ${timeStr}`);
+      const schedMinutes = timeToMinutes(item.scheduledTime);
+
+      // Critério de disparo:
+      // 1. O horário atual (em minutos) atingiu ou passou do horário agendado (ex: >= 09:00 / 540 min)
+      // 2. A mensagem ainda NÃO foi entregue hoje com sucesso (lastSentDate !== dateStr)
+      // 3. Se foi cadastrado hoje, garante que não dispare se foi cadastrado depois do horário, exceto se passou para o dia seguinte
+      const isDue = totalMinutes >= schedMinutes;
+      const notSentToday = item.lastSentDate !== dateStr;
+      const wasRegisteredBeforeOrPastDays = item.registeredDate !== dateStr || (item.registeredMinutes || 0) <= schedMinutes;
+
+      if (isDue && notSentToday && wasRegisteredBeforeOrPastDays) {
+        console.log(`[Telegram Scheduler] ⏰ Horário atingido! Disparando aviso diário para ${userId} (${item.chatId}) às ${timeStr} (Agendado: ${item.scheduledTime})`);
+        
         try {
-          const response = await fetch(`https://api.telegram.org/bot${item.botToken}/sendMessage`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              chat_id: item.chatId,
-              text: item.messageText,
-              parse_mode: 'Markdown',
-            }),
-          });
-          const result = await response.json();
+          const result = await sendTelegramDirect(item.botToken, item.chatId, item.messageText);
           if (result.ok) {
             item.lastSentDate = dateStr;
             item.lastSentTimestamp = new Date().toISOString();
             item.lastSentStatus = 'success';
             item.lastSentError = undefined;
             savePersistedSchedules();
-            console.log(`[Telegram Scheduler] Mensagem enviada com sucesso para ${userId}`);
+            console.log(`[Telegram Scheduler] ✅ Mensagem diária enviada com SUCESSO para ${userId} às ${timeStr}!`);
           } else {
             item.lastSentStatus = 'error';
             item.lastSentError = result.description || 'Erro retornado pela API do Telegram';
+            // Para não spamar caso haja erro permanente (ex: token inválido), marca para não travar loop
+            item.lastSentTimestamp = new Date().toISOString();
             savePersistedSchedules();
-            console.error(`[Telegram Scheduler] Falha ao enviar para ${userId}:`, result.description);
+            console.error(`[Telegram Scheduler] ❌ Falha ao enviar para ${userId}:`, result.description);
           }
         } catch (dispatchErr: any) {
           item.lastSentStatus = 'error';
           item.lastSentError = dispatchErr.message;
+          item.lastSentTimestamp = new Date().toISOString();
           savePersistedSchedules();
-          console.error(`[Telegram Scheduler] Exceção ao enviar para ${userId}:`, dispatchErr);
+          console.error(`[Telegram Scheduler] ⚠️ Exceção ao enviar para ${userId}:`, dispatchErr);
         }
       }
     }
-  }, 30000);
+  }, 15000);
 
   // Middleware global de erro do Express (garante SEMPRE resposta JSON em vez de HTML)
   app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {

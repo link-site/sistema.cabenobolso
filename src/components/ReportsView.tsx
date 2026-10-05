@@ -13,9 +13,20 @@ import {
   Award,
   Search,
   TrendingUp,
+  TrendingDown,
   Info,
+  ShoppingCart,
+  Store,
+  ArrowDownRight,
+  ArrowUpRight,
+  ArrowUpDown,
+  DollarSign,
+  Download,
+  Trash2,
+  SlidersHorizontal,
+  Sparkles,
 } from 'lucide-react';
-import { Transaction, CreditCard as CreditCardType, TagItem, CardPurchase } from '../types';
+import { Transaction, CreditCard as CreditCardType, TagItem, CardPurchase, MarketItem, MarketPriceSearchRecord } from '../types';
 import {
   formatCurrency,
   formatDateDisplay,
@@ -28,6 +39,10 @@ interface ReportsViewProps {
   cards: CreditCardType[];
   tags: TagItem[];
   cardPurchases?: CardPurchase[];
+  marketItems?: MarketItem[];
+  marketSearches?: MarketPriceSearchRecord[];
+  onClearMarketSearches?: () => Promise<void>;
+  onNavigateToMarket?: () => void;
 }
 
 export const ReportsView: React.FC<ReportsViewProps> = ({
@@ -35,14 +50,25 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
   cards,
   tags,
   cardPurchases = [],
+  marketItems = [],
+  marketSearches = [],
+  onClearMarketSearches,
+  onNavigateToMarket,
 }) => {
   const [selectedYear, setSelectedYear] = useState<number>(2026);
   const [selectedMonth, setSelectedMonth] = useState<number | 'all'>('all');
-  const [activeSubTab, setActiveSubTab] = useState<'geral' | 'cartoes' | 'projecoes'>('geral');
+  const [activeSubTab, setActiveSubTab] = useState<'geral' | 'cartoes' | 'projecoes' | 'mercado'>('geral');
   const [purchaseSearch, setPurchaseSearch] = useState('');
   const [purchaseTagSearch, setPurchaseTagSearch] = useState('');
   const [purchaseTagFilter, setPurchaseTagFilter] = useState<string>('all');
   const [purchaseCardFilter, setPurchaseCardFilter] = useState<string>('all');
+
+  // Filtros da aba de Mercado
+  const [marketSearchQuery, setMarketSearchQuery] = useState('');
+  const [marketCategoryFilter, setMarketCategoryFilter] = useState<string>('all');
+  const [marketStoreFilter, setMarketStoreFilter] = useState<string>('all');
+  const [marketPeriodFilter, setMarketPeriodFilter] = useState<'all' | 'today' | '7days' | '30days'>('all');
+  const [marketSortBy, setMarketSortBy] = useState<'recent' | 'highest_spread' | 'highest_variation' | 'lowest_price' | 'name'>('recent');
 
   // Filtros de transações gerais
   const filteredTransactions = useMemo(() => {
@@ -313,6 +339,238 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
     document.body.removeChild(link);
   };
 
+  // ----------------------------------------------------
+  // NOVO: Processamento de Relatório e Variação de Mercado
+  // ----------------------------------------------------
+  const availableMarketCategories = useMemo(() => {
+    const set = new Set<string>();
+    marketSearches.forEach((s) => {
+      if (s.category) set.add(s.category);
+    });
+    marketItems.forEach((it) => {
+      if (it.category) set.add(it.category);
+    });
+    return Array.from(set).filter(Boolean).sort((a, b) => a.localeCompare(b, 'pt-BR'));
+  }, [marketSearches, marketItems]);
+
+  const allFortalezaSupermarkets = useMemo(() => {
+    return ['Atacadão', 'Mercadão', 'CenterBox', 'Lagoa', 'Frangolândia', 'Guará', 'São Luiz'];
+  }, []);
+
+  // Filtros e ordenação do histórico de buscas de preços de mercado
+  const filteredMarketSearches = useMemo(() => {
+    const now = new Date();
+    const todayStr = now.toLocaleDateString('pt-BR');
+
+    return marketSearches.filter((s) => {
+      const q = marketSearchQuery.toLowerCase().trim();
+      const sName = (s.itemName || '').toLowerCase();
+      const sCat = (s.category || '').toLowerCase();
+      const sCheapest = (s.cheapestSupermarket || '').toLowerCase();
+
+      // Filtro textual
+      const matchesText = !q || sName.includes(q) || sCat.includes(q) || sCheapest.includes(q);
+
+      // Filtro de categoria
+      const matchesCategory = marketCategoryFilter === 'all' || s.category === marketCategoryFilter;
+
+      // Filtro de supermercado
+      const matchesStore = marketStoreFilter === 'all' || 
+        s.cheapestSupermarket === marketStoreFilter || 
+        (s.comparisons && s.comparisons.some((c) => c.supermarket === marketStoreFilter));
+
+      // Filtro de período
+      let matchesPeriod = true;
+      if (marketPeriodFilter === 'today') {
+        matchesPeriod = s.date === todayStr;
+      } else if (marketPeriodFilter === '7days') {
+        const diffMs = now.getTime() - new Date(s.timestamp).getTime();
+        matchesPeriod = diffMs <= 7 * 24 * 60 * 60 * 1000;
+      } else if (marketPeriodFilter === '30days') {
+        const diffMs = now.getTime() - new Date(s.timestamp).getTime();
+        matchesPeriod = diffMs <= 30 * 24 * 60 * 60 * 1000;
+      }
+
+      return matchesText && matchesCategory && matchesStore && matchesPeriod;
+    }).sort((a, b) => {
+      if (marketSortBy === 'recent') {
+        return new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime();
+      }
+      if (marketSortBy === 'highest_spread') {
+        return (b.priceSpread || 0) - (a.priceSpread || 0);
+      }
+      if (marketSortBy === 'highest_variation') {
+        return (b.variationPercentage || 0) - (a.variationPercentage || 0);
+      }
+      if (marketSortBy === 'lowest_price') {
+        return a.lowestPrice - b.lowestPrice;
+      }
+      if (marketSortBy === 'name') {
+        return a.itemName.localeCompare(b.itemName, 'pt-BR');
+      }
+      return 0;
+    });
+  }, [marketSearches, marketSearchQuery, marketCategoryFilter, marketStoreFilter, marketPeriodFilter, marketSortBy]);
+
+  // Estatísticas e Diagnósticos de Variação de Mercado
+  const marketStats = useMemo(() => {
+    if (filteredMarketSearches.length === 0) {
+      return {
+        totalSearches: 0,
+        avgSpread: 0,
+        avgVariation: 0,
+        championStore: 'Nenhum',
+        championWins: 0,
+        maxSpreadRecord: null as MarketPriceSearchRecord | null,
+        maxVariationRecord: null as MarketPriceSearchRecord | null,
+        totalPotentialSavings: 0,
+        storeWinCounts: {} as Record<string, number>,
+      };
+    }
+
+    const storeWinCounts: Record<string, number> = {};
+    let totalSpread = 0;
+    let totalVariation = 0;
+    let maxSpreadRecord = filteredMarketSearches[0];
+    let maxVariationRecord = filteredMarketSearches[0];
+
+    filteredMarketSearches.forEach((s) => {
+      const spread = s.priceSpread || (s.highestPrice ? s.highestPrice - s.lowestPrice : 0);
+      const varPct = s.variationPercentage || (s.lowestPrice > 0 ? ((spread / s.lowestPrice) * 100) : 0);
+
+      totalSpread += spread;
+      totalVariation += varPct;
+
+      if (s.cheapestSupermarket) {
+        storeWinCounts[s.cheapestSupermarket] = (storeWinCounts[s.cheapestSupermarket] || 0) + 1;
+      }
+
+      if (spread > (maxSpreadRecord.priceSpread || 0)) {
+        maxSpreadRecord = s;
+      }
+      if (varPct > (maxVariationRecord.variationPercentage || 0)) {
+        maxVariationRecord = s;
+      }
+    });
+
+    let championStore = 'Nenhum';
+    let championWins = 0;
+    Object.entries(storeWinCounts).forEach(([store, wins]) => {
+      if (wins > championWins) {
+        championWins = wins;
+        championStore = store;
+      }
+    });
+
+    const count = filteredMarketSearches.length;
+    return {
+      totalSearches: count,
+      avgSpread: totalSpread / count,
+      avgVariation: totalVariation / count,
+      championStore,
+      championWins,
+      maxSpreadRecord,
+      maxVariationRecord,
+      totalPotentialSavings: totalSpread,
+      storeWinCounts,
+    };
+  }, [filteredMarketSearches]);
+
+  // Mapeamento de histórico por item para mostrar tendência de preço (subiu / caiu / estável)
+  const itemTrends = useMemo(() => {
+    const map: Record<string, { currentLowest: number; previousLowest?: number; changeType: 'down' | 'up' | 'stable' }> = {};
+    
+    // Agrupa buscas pelo nome do produto ordenadas cronologicamente
+    const groupedByName: Record<string, MarketPriceSearchRecord[]> = {};
+    marketSearches.forEach((s) => {
+      const key = s.itemName.toLowerCase().trim();
+      if (!groupedByName[key]) groupedByName[key] = [];
+      groupedByName[key].push(s);
+    });
+
+    Object.entries(groupedByName).forEach(([key, list]) => {
+      const sorted = [...list].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+      if (sorted.length >= 2) {
+        const latest = sorted[sorted.length - 1];
+        const previous = sorted[sorted.length - 2];
+        const diff = latest.lowestPrice - previous.lowestPrice;
+        let changeType: 'down' | 'up' | 'stable' = 'stable';
+        if (diff < -0.05) changeType = 'down';
+        else if (diff > 0.05) changeType = 'up';
+
+        map[latest.id] = {
+          currentLowest: latest.lowestPrice,
+          previousLowest: previous.lowestPrice,
+          changeType,
+        };
+      }
+    });
+
+    return map;
+  }, [marketSearches]);
+
+  const handleExportMarketCSV = () => {
+    const headers = [
+      'Data da Cotação',
+      'Hora da Cotação',
+      'Produto / Item',
+      'Categoria',
+      'Atacadão (R$)',
+      'Mercadão (R$)',
+      'CenterBox (R$)',
+      'Lagoa (R$)',
+      'Frangolândia (R$)',
+      'Guará (R$)',
+      'São Luiz (R$)',
+      'Menor Preço (R$)',
+      'Supermercado Mais Barato',
+      'Maior Preço (R$)',
+      'Supermercado Mais Caro',
+      'Diferença / Economia (R$)',
+      'Variação (%)',
+    ];
+
+    const rows: string[][] = [];
+
+    filteredMarketSearches.forEach((s) => {
+      const getStorePrice = (storeName: string) => {
+        const found = s.comparisons?.find((c) => c.supermarket.toLowerCase() === storeName.toLowerCase());
+        return found ? found.price.toFixed(2) : '-';
+      };
+
+      rows.push([
+        s.date,
+        s.time,
+        s.itemName,
+        s.category,
+        getStorePrice('Atacadão'),
+        getStorePrice('Mercadão'),
+        getStorePrice('CenterBox'),
+        getStorePrice('Lagoa'),
+        getStorePrice('Frangolândia'),
+        getStorePrice('Guará'),
+        getStorePrice('São Luiz'),
+        s.lowestPrice.toFixed(2),
+        s.cheapestSupermarket,
+        (s.highestPrice || 0).toFixed(2),
+        s.mostExpensiveSupermarket || '',
+        (s.priceSpread || 0).toFixed(2),
+        `${(s.variationPercentage || 0).toFixed(1)}%`,
+      ]);
+    });
+
+    const csvContent =
+      'data:text/csv;charset=utf-8,\uFEFF' +
+      [headers.join(';'), ...rows.map((r) => r.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(';'))].join('\n');
+
+    const link = document.createElement('a');
+    link.setAttribute('href', encodeURI(csvContent));
+    link.setAttribute('download', `relatorio-cotacoes-mercado-${new Date().toISOString().split('T')[0]}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   return (
     <div className="space-y-6 pb-12 animate-fadeIn print:bg-white print:text-black">
       {/* Cabeçalho */}
@@ -352,8 +610,9 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
           </select>
 
           <button
-            onClick={handleExportCSV}
+            onClick={activeSubTab === 'mercado' ? handleExportMarketCSV : handleExportCSV}
             className="flex items-center gap-1 px-3 py-2 rounded-xl bg-[#18181b] hover:bg-zinc-800 border border-zinc-700 hover:border-[#00ff7f] text-zinc-200 text-xs font-bold transition-colors cursor-pointer"
+            title={activeSubTab === 'mercado' ? 'Exportar cotações de supermercado em CSV' : 'Exportar relatório financeiro em CSV'}
           >
             <FileSpreadsheet className="w-4 h-4 text-[#00ff7f]" />
             <span>CSV</span>
@@ -370,10 +629,10 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
       </div>
 
       {/* Sub-abas de Navegação */}
-      <div className="flex border-b border-zinc-800 gap-1.5 print:hidden">
+      <div className="flex border-b border-zinc-800 gap-1.5 print:hidden overflow-x-auto pb-px">
         <button
           onClick={() => setActiveSubTab('geral')}
-          className={`px-4 py-2 text-xs sm:text-sm font-bold border-b-2 cursor-pointer transition-colors ${
+          className={`px-4 py-2 text-xs sm:text-sm font-bold border-b-2 cursor-pointer transition-colors shrink-0 ${
             activeSubTab === 'geral' ? 'border-[#00ff7f] text-white' : 'border-transparent text-zinc-400 hover:text-zinc-200'
           }`}
         >
@@ -381,7 +640,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
         </button>
         <button
           onClick={() => setActiveSubTab('cartoes')}
-          className={`px-4 py-2 text-xs sm:text-sm font-bold border-b-2 cursor-pointer transition-colors ${
+          className={`px-4 py-2 text-xs sm:text-sm font-bold border-b-2 cursor-pointer transition-colors shrink-0 ${
             activeSubTab === 'cartoes' ? 'border-[#00ff7f] text-white' : 'border-transparent text-zinc-400 hover:text-zinc-200'
           }`}
         >
@@ -389,11 +648,25 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
         </button>
         <button
           onClick={() => setActiveSubTab('projecoes')}
-          className={`px-4 py-2 text-xs sm:text-sm font-bold border-b-2 cursor-pointer transition-colors ${
+          className={`px-4 py-2 text-xs sm:text-sm font-bold border-b-2 cursor-pointer transition-colors shrink-0 ${
             activeSubTab === 'projecoes' ? 'border-[#00ff7f] text-white' : 'border-transparent text-zinc-400 hover:text-zinc-200'
           }`}
         >
           Planejamento & Projeções
+        </button>
+        <button
+          onClick={() => setActiveSubTab('mercado')}
+          className={`px-4 py-2 text-xs sm:text-sm font-bold border-b-2 cursor-pointer transition-colors flex items-center gap-1.5 shrink-0 ${
+            activeSubTab === 'mercado' ? 'border-[#00ff7f] text-white' : 'border-transparent text-zinc-400 hover:text-zinc-200'
+          }`}
+        >
+          <ShoppingCart className="w-3.5 h-3.5 text-[#00ff7f]" />
+          <span>Cotações & Mercado</span>
+          {marketSearches.length > 0 && (
+            <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-[#00ff7f]/20 text-[#00ff7f] font-mono">
+              {marketSearches.length}
+            </span>
+          )}
         </button>
       </div>
 
@@ -842,6 +1115,376 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
                 Mantenha a soma de suas faturas estimadas sempre abaixo de 30% da sua renda mensal para garantir um fluxo de caixa saudável e evitar o superendividamento.
               </p>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ABA 4: COTAÇÕES & MERCADO */}
+      {(activeSubTab === 'mercado' || window.matchMedia('print').matches) && (
+        <div className="space-y-6">
+          {/* Top Metric Cards */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="p-4 rounded-2xl bg-[#0e1410] border border-emerald-500/30">
+              <span className="text-xs font-bold text-emerald-400 uppercase tracking-wider block flex items-center gap-1.5">
+                <ShoppingCart className="w-3.5 h-3.5 text-[#00ff7f]" />
+                Cotações Registradas
+              </span>
+              <span className="text-2xl font-black font-mono text-[#00ff7f] block mt-1">
+                {marketStats.totalSearches}
+              </span>
+              <span className="text-[10px] text-zinc-400 block mt-1">
+                {marketSearches.length} buscas totais no histórico
+              </span>
+            </div>
+
+            <div className="p-4 rounded-2xl bg-[#121217] border border-zinc-800">
+              <span className="text-xs font-bold text-amber-400 uppercase tracking-wider block flex items-center gap-1.5">
+                <DollarSign className="w-3.5 h-3.5 text-amber-400" />
+                Economia Média por Item
+              </span>
+              <span className="text-2xl font-black font-mono text-amber-300 block mt-1">
+                {formatCurrency(marketStats.avgSpread)}
+              </span>
+              <span className="text-[10px] text-zinc-400 block mt-1">
+                Variação média de {marketStats.avgVariation.toFixed(1)}% entre mercados
+              </span>
+            </div>
+
+            <div className="p-4 rounded-2xl bg-[#0a1510] border border-[#00ff7f]/40">
+              <span className="text-xs font-bold text-[#00ff7f] uppercase tracking-wider block flex items-center gap-1.5">
+                <Award className="w-3.5 h-3.5 text-[#00ff7f]" />
+                Campeão em Preço Baixo
+              </span>
+              <span className="text-xl font-black text-white block mt-1 truncate">
+                {marketStats.championStore}
+              </span>
+              <span className="text-[10px] text-zinc-400 block mt-1">
+                Menor preço em {marketStats.championWins} de {marketStats.totalSearches} cotações
+              </span>
+            </div>
+
+            <div className="p-4 rounded-2xl bg-[#140e10] border border-rose-500/30">
+              <span className="text-xs font-bold text-rose-400 uppercase tracking-wider block flex items-center gap-1.5">
+                <TrendingUp className="w-3.5 h-3.5 text-rose-400" />
+                Maior Dispersão de Preço
+              </span>
+              <span className="text-xl font-black font-mono text-rose-400 block mt-1">
+                {marketStats.maxSpreadRecord ? formatCurrency(marketStats.maxSpreadRecord.priceSpread) : 'R$ 0,00'}
+              </span>
+              <span className="text-[10px] text-zinc-400 block mt-1 truncate">
+                {marketStats.maxSpreadRecord ? `${marketStats.maxSpreadRecord.itemName} (+${marketStats.maxSpreadRecord.variationPercentage}%)` : 'Nenhum item'}
+              </span>
+            </div>
+          </div>
+
+          {/* Filtros e Barra de Ações da Aba Mercado */}
+          <div className="p-5 rounded-2xl bg-[#0b0b0e] border border-zinc-800 shadow-xl space-y-4 print:hidden">
+            <div className="flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-3">
+              <div className="flex items-center gap-2">
+                <SlidersHorizontal className="w-4 h-4 text-[#00ff7f]" />
+                <h3 className="text-sm font-bold text-white">Filtros & Análise de Cotações</h3>
+                <span className="text-[10px] text-zinc-500 bg-zinc-900 px-2 py-0.5 rounded">
+                  {filteredMarketSearches.length} de {marketSearches.length} registros
+                </span>
+              </div>
+
+              <div className="flex items-center gap-2 flex-wrap">
+                <button
+                  onClick={handleExportMarketCSV}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 border border-zinc-700 hover:border-[#00ff7f] text-zinc-300 text-xs font-bold transition-all cursor-pointer"
+                  title="Baixar planilha CSV com histórico completo de todos os mercados"
+                >
+                  <Download className="w-3.5 h-3.5 text-[#00ff7f]" />
+                  <span>Exportar Planilha Mercado (CSV)</span>
+                </button>
+
+                {onNavigateToMarket && (
+                  <button
+                    onClick={onNavigateToMarket}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#00ff7f]/10 border border-[#00ff7f]/30 hover:bg-[#00ff7f]/20 text-[#00ff7f] text-xs font-bold transition-all cursor-pointer"
+                  >
+                    <ShoppingCart className="w-3.5 h-3.5" />
+                    <span>Ir para Pesquisa de Mercado</span>
+                  </button>
+                )}
+
+                {onClearMarketSearches && marketSearches.length > 0 && (
+                  <button
+                    onClick={() => {
+                      if (window.confirm('Deseja limpar todo o histórico de buscas de preços do relatório?')) {
+                        onClearMarketSearches();
+                      }
+                    }}
+                    className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-zinc-900 hover:bg-red-950/40 text-zinc-500 hover:text-red-400 border border-zinc-800 hover:border-red-900/30 text-xs font-bold transition-all cursor-pointer"
+                    title="Limpar histórico de cotações"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Limpar Histórico</span>
+                  </button>
+                )}
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-2.5 pt-2">
+              {/* Busca por nome */}
+              <div className="relative">
+                <span className="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none">
+                  <Search className="w-3.5 h-3.5 text-zinc-500" />
+                </span>
+                <input
+                  type="text"
+                  placeholder="Buscar produto ou loja..."
+                  value={marketSearchQuery}
+                  onChange={(e) => setMarketSearchQuery(e.target.value)}
+                  className="w-full bg-[#121217] border border-zinc-800 rounded-xl pl-8.5 pr-3 py-2 text-xs text-white focus:outline-none focus:border-[#00ff7f]"
+                />
+              </div>
+
+              {/* Filtro por Categoria */}
+              <div>
+                <select
+                  value={marketCategoryFilter}
+                  onChange={(e) => setMarketCategoryFilter(e.target.value)}
+                  className="w-full bg-[#121217] border border-zinc-800 text-white text-xs font-semibold rounded-xl px-3 py-2 focus:outline-none focus:border-[#00ff7f]"
+                >
+                  <option value="all">Todas as Categorias</option>
+                  {availableMarketCategories.map((cat) => (
+                    <option key={cat} value={cat}>{cat}</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Filtro por Supermercado */}
+              <div>
+                <select
+                  value={marketStoreFilter}
+                  onChange={(e) => setMarketStoreFilter(e.target.value)}
+                  className="w-full bg-[#121217] border border-zinc-800 text-white text-xs font-semibold rounded-xl px-3 py-2 focus:outline-none focus:border-[#00ff7f]"
+                >
+                  <option value="all">Todos os Supermercados</option>
+                  {allFortalezaSupermarkets.map((store) => (
+                    <option key={store} value={store}>{store}</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Filtro de Período */}
+              <div>
+                <select
+                  value={marketPeriodFilter}
+                  onChange={(e) => setMarketPeriodFilter(e.target.value as any)}
+                  className="w-full bg-[#121217] border border-zinc-800 text-white text-xs font-semibold rounded-xl px-3 py-2 focus:outline-none focus:border-[#00ff7f]"
+                >
+                  <option value="all">Todo o Período</option>
+                  <option value="today">Apenas Hoje</option>
+                  <option value="7days">Últimos 7 Dias</option>
+                  <option value="30days">Últimos 30 Dias</option>
+                </select>
+              </div>
+
+              {/* Ordenação */}
+              <div>
+                <select
+                  value={marketSortBy}
+                  onChange={(e) => setMarketSortBy(e.target.value as any)}
+                  className="w-full bg-[#121217] border border-zinc-800 text-white text-xs font-semibold rounded-xl px-3 py-2 focus:outline-none focus:border-[#00ff7f]"
+                >
+                  <option value="recent">Mais Recentes Primeiro</option>
+                  <option value="highest_spread">Maior Economia (R$)</option>
+                  <option value="highest_variation">Maior Variação (%)</option>
+                  <option value="lowest_price">Menor Preço</option>
+                  <option value="name">Nome do Produto (A-Z)</option>
+                </select>
+              </div>
+            </div>
+          </div>
+
+          {/* Relatório Detalhado de Cotações com Todos os Mercados, Data, Hora e Variação */}
+          <div className="space-y-4">
+            {filteredMarketSearches.length === 0 ? (
+              <div className="p-12 rounded-2xl bg-[#0b0b0e] border border-zinc-800 text-center space-y-3">
+                <ShoppingCart className="w-10 h-10 text-zinc-600 mx-auto" />
+                <h4 className="text-sm font-bold text-zinc-300">Nenhuma cotação de mercado encontrada</h4>
+                <p className="text-xs text-zinc-500 max-w-md mx-auto">
+                  Utilize o menu Mercado para realizar buscas de preços ou ajuste os filtros acima.
+                </p>
+                {onNavigateToMarket && (
+                  <button
+                    onClick={onNavigateToMarket}
+                    className="inline-flex items-center gap-2 bg-[#00ff7f]/10 border border-[#00ff7f]/30 hover:bg-[#00ff7f]/20 text-[#00ff7f] text-xs font-bold px-4 py-2 rounded-xl transition-all cursor-pointer mt-2"
+                  >
+                    <Sparkles className="w-3.5 h-3.5" />
+                    <span>Realizar Cotação no Mercado</span>
+                  </button>
+                )}
+              </div>
+            ) : (
+              filteredMarketSearches.map((search) => {
+                const trend = itemTrends[search.id];
+                const spread = search.priceSpread || (search.highestPrice ? search.highestPrice - search.lowestPrice : 0);
+                const variation = search.variationPercentage || (search.lowestPrice > 0 ? ((spread / search.lowestPrice) * 100) : 0);
+
+                return (
+                  <div
+                    key={search.id}
+                    className="p-5 rounded-2xl bg-[#0b0b0f] border border-zinc-850 hover:border-zinc-700 transition-all shadow-lg space-y-4 print:border-zinc-300 print:bg-white print:text-black"
+                  >
+                    {/* Linha Superior: Produto, Categoria, Data, Hora e Tendência */}
+                    <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 border-b border-zinc-900 pb-3 print:border-zinc-300">
+                      <div className="flex items-start gap-3 min-w-0">
+                        <div className="w-9 h-9 rounded-xl bg-zinc-900 border border-zinc-800 flex items-center justify-center text-[#00ff7f] shrink-0 mt-0.5 print:bg-zinc-100">
+                          <Store className="w-4 h-4" />
+                        </div>
+                        <div>
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <h4 className="text-base font-black text-white print:text-black">
+                              {search.itemName}
+                            </h4>
+                            <span className="text-[10px] font-bold text-zinc-400 bg-zinc-900 border border-zinc-800 px-2 py-0.5 rounded print:bg-zinc-100 print:text-zinc-700">
+                              {search.category}
+                            </span>
+                            {trend && (
+                              <span
+                                className={`text-[10px] font-bold px-2 py-0.5 rounded flex items-center gap-1 ${
+                                  trend.changeType === 'down'
+                                    ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                                    : trend.changeType === 'up'
+                                    ? 'bg-rose-500/10 text-rose-400 border border-rose-500/20'
+                                    : 'bg-zinc-800 text-zinc-400'
+                                }`}
+                                title={`Cotação anterior: ${formatCurrency(trend.previousLowest || 0)}`}
+                              >
+                                {trend.changeType === 'down' && <ArrowDownRight className="w-3 h-3 text-emerald-400" />}
+                                {trend.changeType === 'up' && <ArrowUpRight className="w-3 h-3 text-rose-400" />}
+                                {trend.changeType === 'stable' && <ArrowUpDown className="w-3 h-3 text-zinc-400" />}
+                                <span>
+                                  {trend.changeType === 'down' && 'Preço caiu vs última busca'}
+                                  {trend.changeType === 'up' && 'Preço subiu vs última busca'}
+                                  {trend.changeType === 'stable' && 'Preço estável'}
+                                </span>
+                              </span>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-2 mt-1 text-xs text-zinc-400 font-mono print:text-zinc-600">
+                            <Clock className="w-3 h-3 text-[#00ff7f]" />
+                            <span>Data da Cotação: <b>{search.date}</b> às <b>{search.time}</b></span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Resumo da Variação de Valor */}
+                      <div className="flex items-center gap-3 self-start md:self-auto bg-zinc-900/80 border border-zinc-800 px-3.5 py-2 rounded-xl print:bg-zinc-100 print:border-zinc-300">
+                        <div className="text-right">
+                          <span className="text-[9px] uppercase font-bold text-zinc-500 block leading-none">
+                            Variação de Valor
+                          </span>
+                          <span className="text-sm font-black text-amber-400 font-mono block mt-0.5">
+                            {formatCurrency(spread)}
+                          </span>
+                        </div>
+                        <div className="h-7 w-px bg-zinc-800 print:bg-zinc-300" />
+                        <div className="text-right">
+                          <span className="text-[9px] uppercase font-bold text-zinc-500 block leading-none">
+                            Dispersão
+                          </span>
+                          <span className="text-xs font-black text-rose-400 font-mono block mt-0.5">
+                            +{variation.toFixed(1)}%
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Grade Comparativa de TODOS os Mercados */}
+                    <div>
+                      <span className="text-[10px] uppercase font-black tracking-wider text-zinc-500 block mb-2">
+                        Preços por Supermercado em Fortaleza:
+                      </span>
+
+                      <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2">
+                        {allFortalezaSupermarkets.map((storeName) => {
+                          const comp = search.comparisons?.find((c) => c.supermarket.toLowerCase() === storeName.toLowerCase());
+                          const price = comp ? comp.price : null;
+                          const isCheapest = price !== null && price === search.lowestPrice;
+                          const isMostExpensive = price !== null && price === search.highestPrice && search.highestPrice > search.lowestPrice;
+
+                          return (
+                            <div
+                              key={storeName}
+                              className={`p-2.5 rounded-xl border transition-all ${
+                                isCheapest
+                                  ? 'bg-[#00ff7f]/10 border-[#00ff7f]/50 text-white shadow-sm shadow-[#00ff7f]/10'
+                                  : isMostExpensive
+                                  ? 'bg-rose-500/10 border-rose-500/40 text-white'
+                                  : 'bg-[#121217] border-zinc-850 text-zinc-300'
+                              } print:border-zinc-300 print:bg-zinc-50 print:text-black`}
+                            >
+                              <div className="flex items-center justify-between gap-1 mb-1">
+                                <span className="text-[11px] font-bold truncate">{storeName}</span>
+                                {isCheapest && (
+                                  <span className="text-[8px] font-black uppercase tracking-wider bg-[#00ff7f] text-black px-1 rounded">
+                                    Menor
+                                  </span>
+                                )}
+                                {isMostExpensive && (
+                                  <span className="text-[8px] font-black uppercase tracking-wider bg-rose-500 text-white px-1 rounded">
+                                    Mais Alto
+                                  </span>
+                                )}
+                              </div>
+
+                              <div className="mt-1">
+                                {price !== null ? (
+                                  <span
+                                    className={`text-sm font-black font-mono block ${
+                                      isCheapest ? 'text-[#00ff7f]' : isMostExpensive ? 'text-rose-400' : 'text-zinc-200'
+                                    } print:text-black`}
+                                  >
+                                    {formatCurrency(price)}
+                                  </span>
+                                ) : (
+                                  <span className="text-[10px] text-zinc-600 italic">Indisponível</span>
+                                )}
+                              </div>
+
+                              {comp && comp.productName && (
+                                <span className="text-[9px] text-zinc-500 truncate block mt-0.5" title={comp.productName}>
+                                  {comp.productName}
+                                </span>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {/* Barra de Noção Visual da Variação de Preço */}
+                    <div className="pt-2 border-t border-zinc-900/80 print:border-zinc-200">
+                      <div className="flex items-center justify-between text-[11px] text-zinc-400 font-semibold mb-1.5">
+                        <span className="flex items-center gap-1.5 text-emerald-400">
+                          <CheckCircle2 className="w-3.5 h-3.5 text-[#00ff7f]" />
+                          Melhor Oferta: <b>{search.cheapestSupermarket}</b> ({formatCurrency(search.lowestPrice)})
+                        </span>
+                        <span className="text-zinc-400">
+                          Economia ao escolher a loja certa: <b className="text-[#00ff7f]">{formatCurrency(spread)} por unidade</b>
+                        </span>
+                        {search.mostExpensiveSupermarket && (
+                          <span className="text-rose-400">
+                            Maior Valor: <b>{search.mostExpensiveSupermarket}</b> ({formatCurrency(search.highestPrice || 0)})
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Barra de dispersão de escala */}
+                      <div className="w-full bg-zinc-900 h-2 rounded-full overflow-hidden flex print:bg-zinc-200">
+                        <div className="bg-[#00ff7f] h-full" style={{ width: `${Math.max(15, 100 - variation)}%` }} />
+                        <div className="bg-amber-400 h-full" style={{ width: `${Math.min(30, variation / 2)}%` }} />
+                        <div className="bg-rose-500 h-full flex-1" />
+                      </div>
+                    </div>
+                  </div>
+                );
+              })
+            )}
           </div>
         </div>
       )}

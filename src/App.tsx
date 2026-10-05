@@ -62,9 +62,12 @@ function MainApp() {
     updateCardPurchaseGroup,
     resetToDefault,
     marketItems,
+    marketSearches,
     addMarketItem,
     updateMarketItem,
     deleteMarketItem,
+    addMarketSearchRecord,
+    clearMarketSearches,
     telegramConfig,
     updateTelegramConfig,
   } = useFirestoreFinance();
@@ -196,6 +199,10 @@ function MainApp() {
                   cards={cards}
                   tags={tags}
                   cardPurchases={cardPurchases}
+                  marketItems={marketItems}
+                  marketSearches={marketSearches}
+                  onClearMarketSearches={clearMarketSearches}
+                  onNavigateToMarket={() => setActiveTab('mercado')}
                 />
               )}
 
@@ -205,6 +212,8 @@ function MainApp() {
                   onAddMarketItem={addMarketItem}
                   onUpdateMarketItem={updateMarketItem}
                   onDeleteMarketItem={deleteMarketItem}
+                  onRecordMarketSearch={addMarketSearchRecord}
+                  onNavigateToReports={() => setActiveTab('relatorios')}
                 />
               )}
             </>

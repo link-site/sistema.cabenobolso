@@ -14,13 +14,14 @@ import {
 } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { useAuth } from '../context/AuthContext';
-import { Transaction, TagItem, CreditCard, CardPurchase, MarketItem, TelegramBotConfig } from '../types';
+import { Transaction, TagItem, CreditCard, CardPurchase, MarketItem, TelegramBotConfig, MarketPriceSearchRecord } from '../types';
 import {
   DEFAULT_TAGS,
   INITIAL_TRANSACTIONS,
   INITIAL_CARDS,
   INITIAL_CARD_PURCHASES,
   DEFAULT_MARKET_ITEMS,
+  INITIAL_MARKET_SEARCHES,
 } from './initialData';
 import { buildClampedDate, parseDateMonthYear } from '../utils/formatters';
 import { isCardTransaction, getCardInvoiceForMonthYear } from '../utils/creditCardSync';
@@ -32,6 +33,7 @@ const LOCAL_STORAGE_KEYS = {
   CARDS: 'cabe_no_bolso_cards_v1',
   CARD_PURCHASES: 'cabe_no_bolso_card_purchases_v1',
   MARKET_ITEMS: 'cabe_no_bolso_market_items_v1',
+  MARKET_SEARCHES: 'cabe_no_bolso_market_searches_v1',
   TELEGRAM: 'cabe_no_bolso_telegram_v1',
 };
 
@@ -52,6 +54,7 @@ export function useFirestoreFinance() {
   const [cards, setCards] = useState<CreditCard[]>([]);
   const [cardPurchases, setCardPurchases] = useState<CardPurchase[]>([]);
   const [marketItems, setMarketItems] = useState<MarketItem[]>([]);
+  const [marketSearches, setMarketSearches] = useState<MarketPriceSearchRecord[]>([]);
   const [telegramConfig, setTelegramConfig] = useState<TelegramBotConfig>(DEFAULT_TELEGRAM_CONFIG);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [isSyncing, setIsSyncing] = useState<boolean>(false);
@@ -73,6 +76,7 @@ export function useFirestoreFinance() {
         const savedCards = localStorage.getItem(LOCAL_STORAGE_KEYS.CARDS);
         const savedPurchases = localStorage.getItem(LOCAL_STORAGE_KEYS.CARD_PURCHASES);
         const savedMarket = localStorage.getItem(LOCAL_STORAGE_KEYS.MARKET_ITEMS);
+        const savedSearches = localStorage.getItem(LOCAL_STORAGE_KEYS.MARKET_SEARCHES);
         const savedTelegram = localStorage.getItem(LOCAL_STORAGE_KEYS.TELEGRAM);
 
         setTransactions(savedTx ? JSON.parse(savedTx) : INITIAL_TRANSACTIONS);
@@ -81,6 +85,8 @@ export function useFirestoreFinance() {
         setCardPurchases(savedPurchases ? JSON.parse(savedPurchases) : INITIAL_CARD_PURCHASES);
         const parsedMarket = savedMarket ? JSON.parse(savedMarket) : null;
         setMarketItems(parsedMarket && parsedMarket.length > 0 ? parsedMarket : DEFAULT_MARKET_ITEMS);
+        const parsedSearches = savedSearches ? JSON.parse(savedSearches) : null;
+        setMarketSearches(parsedSearches && parsedSearches.length > 0 ? parsedSearches : INITIAL_MARKET_SEARCHES);
         setTelegramConfig(savedTelegram ? JSON.parse(savedTelegram) : DEFAULT_TELEGRAM_CONFIG);
       } catch (err) {
         console.error('Failed to load local storage:', err);
@@ -89,6 +95,7 @@ export function useFirestoreFinance() {
         setCards(INITIAL_CARDS);
         setCardPurchases(INITIAL_CARD_PURCHASES);
         setMarketItems(DEFAULT_MARKET_ITEMS);
+        setMarketSearches(INITIAL_MARKET_SEARCHES);
         setTelegramConfig(DEFAULT_TELEGRAM_CONFIG);
       }
       setIsLoading(false);
@@ -104,6 +111,7 @@ export function useFirestoreFinance() {
     const tagsColRef = collection(db, 'users', userId, 'tags');
     const purchasesColRef = collection(db, 'users', userId, 'card_purchases');
     const marketColRef = collection(db, 'users', userId, 'market_items');
+    const marketSearchesColRef = collection(db, 'users', userId, 'market_searches');
 
     // First check if user data needs initial bootstrap/seed
     const bootstrapUserData = async () => {
@@ -316,6 +324,43 @@ export function useFirestoreFinance() {
       }
     );
 
+    // Listen to Market Price Searches History
+    const unsubMarketSearches = onSnapshot(
+      marketSearchesColRef,
+      (snapshot) => {
+        if (!snapshot.empty) {
+          const loaded: MarketPriceSearchRecord[] = snapshot.docs.map((docSnap) => {
+            const data = docSnap.data();
+            return {
+              id: docSnap.id,
+              itemId: data.itemId,
+              itemName: data.itemName || '',
+              category: data.category || 'Geral',
+              timestamp: data.timestamp || new Date().toISOString(),
+              date: data.date || '',
+              time: data.time || '',
+              lowestPrice: Number(data.lowestPrice) || 0,
+              cheapestSupermarket: data.cheapestSupermarket || '',
+              highestPrice: Number(data.highestPrice) || 0,
+              mostExpensiveSupermarket: data.mostExpensiveSupermarket || '',
+              priceSpread: Number(data.priceSpread) || 0,
+              variationPercentage: Number(data.variationPercentage) || 0,
+              averagePrice: Number(data.averagePrice) || 0,
+              comparisons: Array.isArray(data.comparisons) ? data.comparisons : [],
+              source: data.source,
+            };
+          });
+          loaded.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+          setMarketSearches(loaded);
+        } else {
+          setMarketSearches(INITIAL_MARKET_SEARCHES);
+        }
+      },
+      (error) => {
+        console.error('Firestore Market Searches listener error:', error);
+      }
+    );
+
     // Listen to Telegram Settings
     const telegramDocRef = doc(db, 'users', userId, 'settings', 'telegram');
     const unsubTelegram = onSnapshot(
@@ -356,7 +401,7 @@ export function useFirestoreFinance() {
       }
     );
 
-    unsubscribesRef.current = [unsubTx, unsubCards, unsubPurchases, unsubTags, unsubMarket, unsubTelegram];
+    unsubscribesRef.current = [unsubTx, unsubCards, unsubPurchases, unsubTags, unsubMarket, unsubMarketSearches, unsubTelegram];
 
     return () => {
       unsubscribesRef.current.forEach((unsub) => unsub());
@@ -371,9 +416,10 @@ export function useFirestoreFinance() {
       localStorage.setItem(LOCAL_STORAGE_KEYS.CARDS, JSON.stringify(cards));
       localStorage.setItem(LOCAL_STORAGE_KEYS.CARD_PURCHASES, JSON.stringify(cardPurchases));
       localStorage.setItem(LOCAL_STORAGE_KEYS.MARKET_ITEMS, JSON.stringify(marketItems));
+      localStorage.setItem(LOCAL_STORAGE_KEYS.MARKET_SEARCHES, JSON.stringify(marketSearches));
       localStorage.setItem(LOCAL_STORAGE_KEYS.TELEGRAM, JSON.stringify(telegramConfig));
     }
-  }, [transactions, tags, cards, cardPurchases, marketItems, telegramConfig, user]);
+  }, [transactions, tags, cards, cardPurchases, marketItems, marketSearches, telegramConfig, user]);
 
   // Transaction Actions
   const addTransaction = async (transaction: Omit<Transaction, 'id'>) => {
@@ -1287,6 +1333,51 @@ export function useFirestoreFinance() {
     }
   };
 
+  // Market Search History Actions
+  const addMarketSearchRecord = async (record: Omit<MarketPriceSearchRecord, 'id'>) => {
+    const newId = `search-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
+    const fullRecord: MarketPriceSearchRecord = {
+      ...record,
+      id: newId,
+    };
+
+    setMarketSearches((prev) => [fullRecord, ...prev]);
+
+    try {
+      const updated = [fullRecord, ...marketSearches];
+      localStorage.setItem(LOCAL_STORAGE_KEYS.MARKET_SEARCHES, JSON.stringify(updated.slice(0, 100)));
+    } catch (e) {
+      console.warn('LocalStorage error saving market search:', e);
+    }
+
+    if (user) {
+      try {
+        const colRef = collection(db, 'users', user.uid, 'market_searches');
+        await addDoc(colRef, fullRecord);
+      } catch (err) {
+        console.error('Error saving market search to firestore:', err);
+      }
+    }
+    return newId;
+  };
+
+  const clearMarketSearches = async () => {
+    setMarketSearches([]);
+    localStorage.removeItem(LOCAL_STORAGE_KEYS.MARKET_SEARCHES);
+
+    if (user) {
+      try {
+        const colRef = collection(db, 'users', user.uid, 'market_searches');
+        const snap = await getDocs(colRef);
+        const batch = writeBatch(db);
+        snap.docs.forEach((d) => batch.delete(d.ref));
+        await batch.commit();
+      } catch (err) {
+        console.error('Error clearing market searches in firestore:', err);
+      }
+    }
+  };
+
   // Telegram Config Actions
   const updateTelegramConfig = async (updated: Partial<TelegramBotConfig>) => {
     const merged: TelegramBotConfig = {
@@ -1336,18 +1427,33 @@ export function useFirestoreFinance() {
     if (telegramConfig.enabled && telegramConfig.botToken && telegramConfig.chatId) {
       const summary = calculateTelegramBudgetSummary(transactions, cards, cardPurchases);
       const msg = buildTelegramMessage(summary, telegramConfig.messageTemplate);
+      const userIdToUse = user ? user.uid : 'default_user';
+
       fetch('/api/telegram/register-schedule', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          userId: user ? user.uid : 'default_user',
+          userId: userIdToUse,
           botToken: telegramConfig.botToken,
           chatId: telegramConfig.chatId,
           scheduledTime: telegramConfig.scheduledTime,
           enabled: telegramConfig.enabled,
           messageText: msg,
         }),
-      }).catch(() => {});
+      })
+        .then((r) => r.json())
+        .then((resData) => {
+          if (resData.schedule && resData.schedule.lastSentDate && resData.schedule.lastSentDate !== telegramConfig.lastSentDate) {
+            setTelegramConfig((prev) => ({
+              ...prev,
+              lastSentDate: resData.schedule.lastSentDate,
+              lastSentTimestamp: resData.schedule.lastSentTimestamp,
+              lastSentStatus: resData.schedule.lastSentStatus,
+              lastSentError: resData.schedule.lastSentError,
+            }));
+          }
+        })
+        .catch(() => {});
     }
   }, [
     transactions,
@@ -1367,6 +1473,7 @@ export function useFirestoreFinance() {
     cards,
     cardPurchases,
     marketItems,
+    marketSearches,
     telegramConfig,
     isLoading,
     isSyncing,
@@ -1392,6 +1499,8 @@ export function useFirestoreFinance() {
     addMarketItem,
     updateMarketItem,
     deleteMarketItem,
+    addMarketSearchRecord,
+    clearMarketSearches,
     updateTelegramConfig,
   };
 }

@@ -75,6 +75,8 @@ export interface MarketItemComparison {
   productName: string;
   price: number;
   isAvailable: boolean;
+  badge?: string;
+  originalPrice?: number;
 }
 
 export interface MarketItem {
@@ -84,7 +86,33 @@ export interface MarketItem {
   createdAt: string;
   lowestPrice?: number;
   cheapestSupermarket?: string;
+  highestPrice?: number;
+  mostExpensiveSupermarket?: string;
+  priceSpread?: number;
+  variationPercentage?: number;
+  lastSearchTimestamp?: string;
+  lastSearchDate?: string;
+  lastSearchTime?: string;
   comparisons?: MarketItemComparison[];
+}
+
+export interface MarketPriceSearchRecord {
+  id: string;
+  itemId?: string;
+  itemName: string;
+  category: string;
+  timestamp: string; // ISO String
+  date: string; // "DD/MM/YYYY"
+  time: string; // "HH:mm:ss"
+  lowestPrice: number;
+  cheapestSupermarket: string;
+  highestPrice: number;
+  mostExpensiveSupermarket: string;
+  priceSpread: number; // Diferença em R$ entre maior e menor preço
+  variationPercentage: number; // Percentual de variação ((maior - menor) / menor) * 100
+  averagePrice: number;
+  comparisons: MarketItemComparison[];
+  source?: string;
 }
 
 export interface TelegramBotConfig {

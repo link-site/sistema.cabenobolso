@@ -284,3 +284,96 @@ export async function sendTelegramMessage(
     };
   }
 }
+
+export interface ScheduleStatusResult {
+  success: boolean;
+  serverTime?: string;
+  serverDate?: string;
+  isSentToday?: boolean;
+  isPendingToday?: boolean;
+  nextRun?: string;
+  totalActiveSchedules?: number;
+  schedule?: {
+    userId: string;
+    botToken: string;
+    chatId: string;
+    scheduledTime: string;
+    enabled: boolean;
+    messageText: string;
+    lastSentDate?: string;
+    lastSentTimestamp?: string;
+    lastSentStatus?: 'success' | 'error';
+    lastSentError?: string;
+  } | null;
+  error?: string;
+}
+
+/**
+ * Consulta o status do agendador automático no backend
+ */
+export async function getTelegramScheduleStatus(userId = 'default_user'): Promise<ScheduleStatusResult> {
+  try {
+    const res = await fetch(`/api/telegram/schedule-status/${userId}`);
+    if (res.ok) {
+      return await res.json();
+    }
+    return { success: false, error: 'Falha ao consultar status do servidor' };
+  } catch (e: any) {
+    return { success: false, error: e.message };
+  }
+}
+
+/**
+ * Registra ou atualiza agendamento no backend
+ */
+export async function registerTelegramScheduleOnServer(params: {
+  userId?: string;
+  botToken: string;
+  chatId: string;
+  scheduledTime: string;
+  enabled: boolean;
+  messageText: string;
+  forceSendToday?: boolean;
+}) {
+  try {
+    const res = await fetch('/api/telegram/register-schedule', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(params),
+    });
+    return await res.json();
+  } catch (e: any) {
+    return { success: false, error: e.message };
+  }
+}
+
+/**
+ * Força o disparo diário imediatamente (para testes ou caso tenha havido atraso matinal)
+ */
+export async function triggerDailyTelegramNow(params: {
+  userId?: string;
+  botToken: string;
+  chatId: string;
+  messageText: string;
+}): Promise<{ success: boolean; sentDate?: string; sentTime?: string; error?: string }> {
+  try {
+    const res = await fetch('/api/telegram/trigger-daily-now', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(params),
+    });
+    return await res.json();
+  } catch (e: any) {
+    // Fallback: se o backend falhar, envia diretamente pelo cliente
+    const direct = await sendTelegramMessage(params.botToken, params.chatId, params.messageText);
+    if (direct.success) {
+      const now = new Date();
+      return {
+        success: true,
+        sentDate: now.toISOString().split('T')[0],
+        sentTime: now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
+      };
+    }
+    return { success: false, error: direct.error || e.message };
+  }
+}
