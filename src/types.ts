@@ -1,4 +1,4 @@
-export type MenuTab = 'dashboard' | 'orcamento' | 'cartoes' | 'relatorios' | 'mercado' | 'telegram';
+export type MenuTab = 'dashboard' | 'orcamento' | 'cartoes' | 'relatorios' | 'mercado' | 'telegram' | 'investimento';
 
 export type TransactionType = 'salario' | 'gasto';
 

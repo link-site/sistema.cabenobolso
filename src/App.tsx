@@ -10,6 +10,7 @@ import { DashboardView } from './components/DashboardView';
 import { ReportsView } from './components/ReportsView';
 import { MercadoView } from './components/MercadoView';
 import { TelegramBotView } from './components/TelegramBotView';
+import { InvestmentView } from './components/InvestmentView';
 import { LoginScreen } from './components/LoginScreen';
 import { AccessDeniedScreen } from './components/AccessDeniedScreen';
 import { AuthorizedEmailsModal } from './components/AuthorizedEmailsModal';
@@ -214,6 +215,19 @@ function MainApp() {
                   onDeleteMarketItem={deleteMarketItem}
                   onRecordMarketSearch={addMarketSearchRecord}
                   onNavigateToReports={() => setActiveTab('relatorios')}
+                />
+              )}
+
+              {activeTab === 'investimento' && (
+                <InvestmentView
+                  transactions={transactions}
+                  cards={cards}
+                  cardPurchases={cardPurchases}
+                  onNavigateToBudget={(year, month) => {
+                    setTargetBudgetMonth({ year, month });
+                    setBudgetNavKey((prev) => prev + 1);
+                    setActiveTab('orcamento');
+                  }}
                 />
               )}
             </>

@@ -15,6 +15,7 @@ import {
   ChevronRight,
   Sparkles,
   Send,
+  TrendingUp,
 } from 'lucide-react';
 import { MenuTab } from '../types';
 import { useAuth } from '../context/AuthContext';
@@ -77,6 +78,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
       label: 'Mercado',
       desc: 'Pesquisa & Comparação',
       icon: Store,
+    },
+    {
+      id: 'investimento' as MenuTab,
+      label: 'Investimento',
+      desc: 'Simulação & 3 Níveis',
+      icon: TrendingUp,
+      badge: 'NOVO',
     },
   ];
 
