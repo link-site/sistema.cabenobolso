@@ -26,6 +26,7 @@ import {
   Activity,
   ShieldCheck,
   CheckCheck,
+  Globe,
 } from 'lucide-react';
 import { Transaction, CreditCard, CardPurchase, TelegramBotConfig } from '../types';
 import {
@@ -93,6 +94,15 @@ export const TelegramBotView: React.FC<TelegramBotViewProps> = ({
 
   const [isSaving, setIsSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
+  const [copiedCronUrl, setCopiedCronUrl] = useState(false);
+
+  const cronUrl = typeof window !== 'undefined' ? `${window.location.origin}/api/telegram/cron-check` : '/api/telegram/cron-check';
+
+  const handleCopyCronUrl = () => {
+    navigator.clipboard.writeText(cronUrl);
+    setCopiedCronUrl(true);
+    setTimeout(() => setCopiedCronUrl(false), 3000);
+  };
 
   // Synchronize when prop changes
   useEffect(() => {
@@ -321,20 +331,34 @@ export const TelegramBotView: React.FC<TelegramBotViewProps> = ({
         messageTemplate: messageTemplate.trim(),
       });
 
-      // Registra imediatamente no backend
+      // Registra imediatamente no backend e dispara se o horário de hoje já passou
       if (cleanToken && cleanId) {
-        await registerTelegramScheduleOnServer({
+        const regRes = await registerTelegramScheduleOnServer({
           botToken: cleanToken,
           chatId: cleanId,
           scheduledTime,
           enabled,
           messageText: previewMessage,
         });
+
+        if (regRes?.dispatchedNow) {
+          const todayStr = regRes.serverDate || new Date().toISOString().split('T')[0];
+          await onSaveConfig({
+            lastSentDate: todayStr,
+            lastSentTimestamp: new Date().toISOString(),
+            lastSentStatus: 'success',
+            lastSentError: undefined,
+          });
+          setDailyTriggerFeedback({
+            success: true,
+            message: `🎉 Configurações salvas e o relatório de hoje foi entregue no seu Telegram às ${regRes.serverTime || 'agora'}!`,
+          });
+        }
         fetchScheduleStatus();
       }
 
       setSaveSuccess(true);
-      setTimeout(() => setSaveSuccess(false), 3000);
+      setTimeout(() => setSaveSuccess(false), 4000);
     } catch (err: any) {
       alert(`Erro ao salvar configurações: ${err.message}`);
     } finally {
@@ -623,11 +647,79 @@ export const TelegramBotView: React.FC<TelegramBotViewProps> = ({
           </div>
         </div>
 
-        {/* Explicação e Dica de Solução */}
-        <div className="p-3 rounded-xl bg-zinc-950/80 border border-zinc-850 flex items-start gap-2.5 text-xs text-zinc-400">
-          <Info className="w-4 h-4 text-[#00ff7f] shrink-0 mt-0.5" />
-          <div className="leading-relaxed">
-            <b className="text-zinc-200">Como funciona o envio diário:</b> O servidor do sistema mantém uma rotina que verifica o relógio do Brasil. Todos os dias às <b>{scheduledTime}</b> ele monta automaticamente o resumo financeiro de <b>{summary.monthName}</b> ({formatCurrency(summary.availableAmount)} disponível) e entrega diretamente na sua conversa do Telegram. Se o horário da manhã foi perdido por instabilidade ou reinício, basta clicar no botão <b>⚡ Disparar Relatório de Hoje Agora</b> acima para receber na hora.
+        {/* Explicação: O sistema precisa estar aberto? */}
+        <div className="p-4 rounded-xl bg-zinc-950/90 border border-zinc-800 space-y-3">
+          <div className="flex items-center gap-2 text-white font-bold text-xs sm:text-sm">
+            <Info className="w-4 h-4 text-[#00ff7f] shrink-0" />
+            <span>O sistema precisa estar com a tela aberta para disparar às {scheduledTime}?</span>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
+            <div className="p-3 rounded-lg bg-zinc-900/70 border border-zinc-800/80 space-y-1.5">
+              <span className="font-semibold text-emerald-400 block flex items-center gap-1.5">
+                <CheckCircle2 className="w-3.5 h-3.5" />
+                1. Com a tela aberta
+              </span>
+              <p className="text-zinc-400 leading-relaxed text-[11px]">
+                Se a aba estiver aberta (no PC ou celular), o agendador do servidor dispara <b>pontualmente às {scheduledTime}</b> no fuso de Brasília.
+              </p>
+            </div>
+
+            <div className="p-3 rounded-lg bg-zinc-900/70 border border-zinc-800/80 space-y-1.5">
+              <span className="font-semibold text-amber-400 block flex items-center gap-1.5">
+                <Activity className="w-3.5 h-3.5" />
+                2. Com a tela fechada (Recuperação)
+              </span>
+              <p className="text-zinc-400 leading-relaxed text-[11px]">
+                Na nuvem (Cloud Run), o servidor entra em repouso à noite sem tráfego. Assim que você <b>abrir o sistema a qualquer hora após as {scheduledTime}</b>, o sistema detecta que o envio de hoje está pendente e <b>dispara na mesma hora</b>!
+              </p>
+            </div>
+
+            <div className="p-3 rounded-lg bg-zinc-900/70 border border-emerald-500/30 space-y-1.5">
+              <span className="font-semibold text-[#00ff7f] block flex items-center gap-1.5">
+                <Globe className="w-3.5 h-3.5" />
+                3. Envio 100% Autônomo (Sem abrir nada)
+              </span>
+              <p className="text-zinc-400 leading-relaxed text-[11px]">
+                Para receber mesmo com o PC/celular desligados, cadastre a URL de Webhook abaixo num serviço gratuito (ex: <a href="https://cron-job.org" target="_blank" rel="noreferrer" className="text-[#00ff7f] underline">cron-job.org</a>) para chamar todo dia às {scheduledTime}.
+              </p>
+            </div>
+          </div>
+
+          {/* Webhook URL Copy Box */}
+          <div className="pt-2 border-t border-zinc-900 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5 text-xs">
+            <div className="flex items-center gap-2 overflow-hidden text-zinc-400 font-mono text-[11px] bg-black/60 px-3 py-1.5 rounded-lg border border-zinc-850 flex-1">
+              <span className="text-zinc-500 select-none">URL de Acionamento:</span>
+              <span className="text-[#00ff7f] truncate select-all">{cronUrl}</span>
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={handleCopyCronUrl}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border border-zinc-700 font-medium text-xs cursor-pointer transition-all active:scale-95"
+              >
+                {copiedCronUrl ? (
+                  <>
+                    <Check className="w-3.5 h-3.5 text-[#00ff7f]" />
+                    <span className="text-[#00ff7f] font-bold">Copiado!</span>
+                  </>
+                ) : (
+                  <>
+                    <Copy className="w-3.5 h-3.5" />
+                    <span>Copiar URL do Cron</span>
+                  </>
+                )}
+              </button>
+              <a
+                href="https://cron-job.org"
+                target="_blank"
+                rel="noreferrer"
+                className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-emerald-950/40 border border-emerald-500/30 text-emerald-300 hover:bg-emerald-900/40 text-xs font-semibold transition-all"
+              >
+                <span>cron-job.org</span>
+                <ExternalLink className="w-3 h-3" />
+              </a>
+            </div>
           </div>
         </div>
       </div>

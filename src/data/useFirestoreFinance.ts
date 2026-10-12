@@ -26,6 +26,7 @@ import {
 import { buildClampedDate, parseDateMonthYear } from '../utils/formatters';
 import { isCardTransaction, getCardInvoiceForMonthYear } from '../utils/creditCardSync';
 import { calculateTelegramBudgetSummary, buildTelegramMessage } from '../utils/telegramFinance';
+import { triggerDailyTelegramNow } from '../utils/telegramApi';
 
 const LOCAL_STORAGE_KEYS = {
   TRANSACTIONS: 'cabe_no_bolso_transactions_v1',
@@ -1423,38 +1424,112 @@ export function useFirestoreFinance() {
   };
 
   // Mantém a mensagem do agendador do servidor atualizada conforme o orçamento (salários e gastos) muda
+  // E executa o despachador automático no cliente (Garantia Dupla contra suspensão de container Cloud Run)
   useEffect(() => {
-    if (telegramConfig.enabled && telegramConfig.botToken && telegramConfig.chatId) {
-      const summary = calculateTelegramBudgetSummary(transactions, cards, cardPurchases);
-      const msg = buildTelegramMessage(summary, telegramConfig.messageTemplate);
-      const userIdToUse = user ? user.uid : 'default_user';
-
-      fetch('/api/telegram/register-schedule', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          userId: userIdToUse,
-          botToken: telegramConfig.botToken,
-          chatId: telegramConfig.chatId,
-          scheduledTime: telegramConfig.scheduledTime,
-          enabled: telegramConfig.enabled,
-          messageText: msg,
-        }),
-      })
-        .then((r) => r.json())
-        .then((resData) => {
-          if (resData.schedule && resData.schedule.lastSentDate && resData.schedule.lastSentDate !== telegramConfig.lastSentDate) {
-            setTelegramConfig((prev) => ({
-              ...prev,
-              lastSentDate: resData.schedule.lastSentDate,
-              lastSentTimestamp: resData.schedule.lastSentTimestamp,
-              lastSentStatus: resData.schedule.lastSentStatus,
-              lastSentError: resData.schedule.lastSentError,
-            }));
-          }
-        })
-        .catch(() => {});
+    if (!telegramConfig.enabled || !telegramConfig.botToken || !telegramConfig.chatId) {
+      return;
     }
+
+    const summary = calculateTelegramBudgetSummary(transactions, cards, cardPurchases);
+    const msg = buildTelegramMessage(summary, telegramConfig.messageTemplate);
+    const userIdToUse = user ? user.uid : 'default_user';
+
+    // 1. Sincroniza com o backend Express
+    fetch('/api/telegram/register-schedule', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        userId: userIdToUse,
+        botToken: telegramConfig.botToken,
+        chatId: telegramConfig.chatId,
+        scheduledTime: telegramConfig.scheduledTime,
+        enabled: telegramConfig.enabled,
+        messageText: msg,
+      }),
+    })
+      .then((r) => r.json())
+      .then((resData) => {
+        if (resData.schedule && resData.schedule.lastSentDate && resData.schedule.lastSentDate !== telegramConfig.lastSentDate) {
+          setTelegramConfig((prev) => ({
+            ...prev,
+            lastSentDate: resData.schedule.lastSentDate,
+            lastSentTimestamp: resData.schedule.lastSentTimestamp,
+            lastSentStatus: resData.schedule.lastSentStatus,
+            lastSentError: resData.schedule.lastSentError,
+          }));
+        }
+      })
+      .catch(() => {});
+
+    // 2. Motor de Despacho Automático no Cliente (executa caso o servidor esteja suspenso)
+    const checkAndDispatchDaily = async () => {
+      try {
+        const now = new Date();
+        const formatter = new Intl.DateTimeFormat('pt-BR', {
+          timeZone: 'America/Fortaleza',
+          hour12: false,
+          year: 'numeric',
+          month: '2-digit',
+          day: '2-digit',
+          hour: '2-digit',
+          minute: '2-digit',
+        });
+        const parts = formatter.formatToParts(now);
+        const getVal = (type: string) => parts.find((p) => p.type === type)?.value || '00';
+        const curDateStr = `${getVal('year')}-${getVal('month')}-${getVal('day')}`;
+        const curTimeStr = `${getVal('hour')}:${getVal('minute')}`;
+
+        const [curH, curM] = curTimeStr.split(':').map(Number);
+        const curMinutes = (curH || 0) * 60 + (curM || 0);
+
+        const sched = (telegramConfig.scheduledTime || '09:00').trim();
+        const [sH, sM] = sched.split(':').map(Number);
+        const schedMinutes = (sH || 0) * 60 + (sM || 0);
+
+        // Se já atingiu ou passou do horário agendado hoje (ex: >= 09:00) e ainda não foi enviado hoje com sucesso
+        const isDue = curMinutes >= schedMinutes;
+        const notSentToday = telegramConfig.lastSentDate !== curDateStr || telegramConfig.lastSentStatus !== 'success';
+
+        if (isDue && notSentToday) {
+          console.log(`[Auto-Sender Telegram] Disparando aviso diário de ${curDateStr} às ${curTimeStr} para ${telegramConfig.chatId}...`);
+          const currentSummary = calculateTelegramBudgetSummary(transactions, cards, cardPurchases);
+          const currentMsg = buildTelegramMessage(currentSummary, telegramConfig.messageTemplate);
+
+          const res = await triggerDailyTelegramNow({
+            userId: userIdToUse,
+            botToken: telegramConfig.botToken,
+            chatId: telegramConfig.chatId,
+            messageText: currentMsg,
+          });
+
+          if (res.success) {
+            console.log('[Auto-Sender Telegram] ✅ Entregue com sucesso no Telegram!');
+            const updated: Partial<TelegramBotConfig> = {
+              lastSentDate: curDateStr,
+              lastSentTimestamp: new Date().toISOString(),
+              lastSentStatus: 'success',
+              lastSentError: undefined,
+            };
+            setTelegramConfig((prev) => ({ ...prev, ...updated }));
+            if (user) {
+              const docRef = doc(db, 'users', user.uid, 'settings', 'telegram');
+              setDoc(docRef, updated, { merge: true }).catch(() => {});
+            }
+          } else {
+            console.warn('[Auto-Sender Telegram] ⚠️ Falha na entrega:', res.error);
+          }
+        }
+      } catch (e) {
+        console.warn('[Auto-Sender Telegram] Erro no despachador:', e);
+      }
+    };
+
+    // Executa verificação imediatamente ao carregar
+    checkAndDispatchDaily();
+
+    // E a cada 20 segundos enquanto o aplicativo estiver aberto
+    const intervalId = setInterval(checkAndDispatchDaily, 20000);
+    return () => clearInterval(intervalId);
   }, [
     transactions,
     cards,
@@ -1464,6 +1539,8 @@ export function useFirestoreFinance() {
     telegramConfig.chatId,
     telegramConfig.scheduledTime,
     telegramConfig.messageTemplate,
+    telegramConfig.lastSentDate,
+    telegramConfig.lastSentStatus,
     user,
   ]);
 

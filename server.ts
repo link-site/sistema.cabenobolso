@@ -948,7 +948,7 @@ Retorne ESTRITAMENTE em formato JSON com o schema:
   });
 
   // 3. Registrar ou atualizar agendamento diário no servidor
-  app.post('/api/telegram/register-schedule', (req, res) => {
+  app.post('/api/telegram/register-schedule', async (req, res) => {
     try {
       const { userId = 'default_user', botToken, chatId, scheduledTime, enabled, messageText, forceSendToday } = req.body;
 
@@ -961,6 +961,7 @@ Retorne ESTRITAMENTE em formato JSON com o schema:
 
       const { timeStr, dateStr, totalMinutes } = getBrazilTimeNow();
       const normTime = normalizeTimeString(scheduledTime);
+      const schedMinutes = timeToMinutes(normTime);
       const existing = telegramSchedules.get(userId);
 
       const schedule: RegisteredTelegramSchedule = {
@@ -978,13 +979,36 @@ Retorne ESTRITAMENTE em formato JSON com o schema:
         lastSentError: existing?.lastSentError,
       };
 
+      let dispatchedNow = false;
+      const isDue = totalMinutes >= schedMinutes;
+      const notSentToday = schedule.lastSentDate !== dateStr;
+
+      // Se o horário de hoje já foi atingido e a notificação de hoje ainda não foi entregue, dispara imediatamente!
+      if (schedule.enabled && schedule.botToken && schedule.chatId && ((isDue && notSentToday) || forceSendToday)) {
+        console.log(`[Telegram Scheduler] ⚡ Horário atingido (${timeStr} >= ${normTime})! Disparando relatório de hoje para '${userId}' no ato do registro...`);
+        const sendRes = await sendTelegramDirect(schedule.botToken, schedule.chatId, schedule.messageText);
+        if (sendRes.ok) {
+          schedule.lastSentDate = dateStr;
+          schedule.lastSentTimestamp = new Date().toISOString();
+          schedule.lastSentStatus = 'success';
+          schedule.lastSentError = undefined;
+          dispatchedNow = true;
+          console.log(`[Telegram Scheduler] ✅ Relatório de hoje entregue com SUCESSO no ato do registro para '${userId}'!`);
+        } else {
+          schedule.lastSentStatus = 'error';
+          schedule.lastSentError = sendRes.description;
+          console.warn(`[Telegram Scheduler] ⚠️ Falha ao entregar no ato do registro para '${userId}':`, sendRes.description);
+        }
+      }
+
       telegramSchedules.set(userId, schedule);
       savePersistedSchedules();
-      console.log(`[Telegram Scheduler] Agendamento registrado para '${userId}' às ${normTime} (Ativo: ${enabled}) | Hora BR: ${timeStr}`);
+      console.log(`[Telegram Scheduler] Agendamento registrado para '${userId}' às ${normTime} (Ativo: ${enabled}) | Hora BR: ${timeStr} | Disparado agora: ${dispatchedNow}`);
 
       return res.json({
         success: true,
         schedule,
+        dispatchedNow,
         serverTime: timeStr,
         serverDate: dateStr,
       });
@@ -994,7 +1018,7 @@ Retorne ESTRITAMENTE em formato JSON com o schema:
   });
 
   // 4. Consultar status do agendador
-  app.get('/api/telegram/schedule-status/:userId', (req, res) => {
+  app.get('/api/telegram/schedule-status/:userId', async (req, res) => {
     const { userId } = req.params;
     const schedule = telegramSchedules.get(userId) || telegramSchedules.get('default_user');
     const { timeStr, dateStr, totalMinutes } = getBrazilTimeNow();
@@ -1004,8 +1028,27 @@ Retorne ESTRITAMENTE em formato JSON com o schema:
     let nextRun = 'Desativado';
 
     if (schedule && schedule.enabled) {
-      isSentToday = schedule.lastSentDate === dateStr && schedule.lastSentStatus === 'success';
       const schedMin = timeToMinutes(schedule.scheduledTime);
+      isSentToday = schedule.lastSentDate === dateStr && schedule.lastSentStatus === 'success';
+
+      // Se atingiu o horário e ainda não enviou hoje, faz tentativa proativa
+      if (!isSentToday && totalMinutes >= schedMin && schedule.botToken && schedule.chatId) {
+        console.log(`[Telegram Scheduler] Status check detectou envio pendente para '${userId}', disparando agora...`);
+        const sendRes = await sendTelegramDirect(schedule.botToken, schedule.chatId, schedule.messageText);
+        if (sendRes.ok) {
+          schedule.lastSentDate = dateStr;
+          schedule.lastSentTimestamp = new Date().toISOString();
+          schedule.lastSentStatus = 'success';
+          schedule.lastSentError = undefined;
+          savePersistedSchedules();
+          isSentToday = true;
+        } else {
+          schedule.lastSentStatus = 'error';
+          schedule.lastSentError = sendRes.description;
+          savePersistedSchedules();
+        }
+      }
+
       if (!isSentToday) {
         if (totalMinutes < schedMin) {
           isPendingToday = true;
@@ -1028,6 +1071,42 @@ Retorne ESTRITAMENTE em formato JSON com o schema:
       nextRun,
       schedule: schedule || null,
       totalActiveSchedules: Array.from(telegramSchedules.values()).filter((s) => s.enabled).length,
+    });
+  });
+
+  // Rota de trigger periódica externa / cron ping
+  app.all('/api/telegram/cron-check', async (req, res) => {
+    if (telegramSchedules.size === 0) {
+      loadPersistedSchedules();
+    }
+    const { timeStr, dateStr, totalMinutes } = getBrazilTimeNow();
+    let triggeredCount = 0;
+
+    for (const [userId, item] of telegramSchedules.entries()) {
+      if (!item.enabled || !item.botToken || !item.chatId) continue;
+      const schedMinutes = timeToMinutes(item.scheduledTime);
+      if (totalMinutes >= schedMinutes && item.lastSentDate !== dateStr) {
+        const sendRes = await sendTelegramDirect(item.botToken, item.chatId, item.messageText);
+        if (sendRes.ok) {
+          item.lastSentDate = dateStr;
+          item.lastSentTimestamp = new Date().toISOString();
+          item.lastSentStatus = 'success';
+          item.lastSentError = undefined;
+          triggeredCount++;
+        } else {
+          item.lastSentStatus = 'error';
+          item.lastSentError = sendRes.description;
+        }
+      }
+    }
+    if (triggeredCount > 0) savePersistedSchedules();
+
+    return res.json({
+      success: true,
+      serverTime: timeStr,
+      serverDate: dateStr,
+      triggeredCount,
+      totalSchedules: telegramSchedules.size,
     });
   });
 
@@ -1094,16 +1173,10 @@ Retorne ESTRITAMENTE em formato JSON com o schema:
       if (!item.enabled || !item.botToken || !item.chatId) continue;
 
       const schedMinutes = timeToMinutes(item.scheduledTime);
-
-      // Critério de disparo:
-      // 1. O horário atual (em minutos) atingiu ou passou do horário agendado (ex: >= 09:00 / 540 min)
-      // 2. A mensagem ainda NÃO foi entregue hoje com sucesso (lastSentDate !== dateStr)
-      // 3. Se foi cadastrado hoje, garante que não dispare se foi cadastrado depois do horário, exceto se passou para o dia seguinte
       const isDue = totalMinutes >= schedMinutes;
       const notSentToday = item.lastSentDate !== dateStr;
-      const wasRegisteredBeforeOrPastDays = item.registeredDate !== dateStr || (item.registeredMinutes || 0) <= schedMinutes;
 
-      if (isDue && notSentToday && wasRegisteredBeforeOrPastDays) {
+      if (isDue && notSentToday) {
         console.log(`[Telegram Scheduler] ⏰ Horário atingido! Disparando aviso diário para ${userId} (${item.chatId}) às ${timeStr} (Agendado: ${item.scheduledTime})`);
         
         try {
