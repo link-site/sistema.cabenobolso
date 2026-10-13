@@ -1,4 +1,23 @@
-export type MenuTab = 'dashboard' | 'orcamento' | 'cartoes' | 'relatorios' | 'mercado' | 'telegram' | 'investimento';
+export type MenuTab = 'dashboard' | 'orcamento' | 'cartoes' | 'relatorios' | 'mercado' | 'investimento' | 'telegram';
+
+export interface TelegramBotConfig {
+  botToken: string;
+  chatId: string;
+  enabled: boolean;
+  botUsername?: string;
+  botFirstName?: string;
+  autoPolling?: boolean;
+  lastConnectedAt?: string;
+  lastSyncAt?: string;
+}
+
+export interface TelegramLogItem {
+  id: string;
+  timestamp: string;
+  type: 'in' | 'out' | 'info' | 'error';
+  message: string;
+  from?: string;
+}
 
 export type TransactionType = 'salario' | 'gasto';
 
@@ -115,15 +134,3 @@ export interface MarketPriceSearchRecord {
   source?: string;
 }
 
-export interface TelegramBotConfig {
-  botToken: string;
-  chatId: string;
-  chatName?: string;
-  enabled: boolean;
-  scheduledTime: string; // "HH:MM", ex: "09:00"
-  messageTemplate?: string;
-  lastSentDate?: string; // "YYYY-MM-DD"
-  lastSentTimestamp?: string;
-  lastSentStatus?: 'success' | 'error';
-  lastSentError?: string;
-}

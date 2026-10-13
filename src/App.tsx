@@ -9,8 +9,8 @@ import { CreditCardsView } from './components/CreditCardsView';
 import { DashboardView } from './components/DashboardView';
 import { ReportsView } from './components/ReportsView';
 import { MercadoView } from './components/MercadoView';
-import { TelegramBotView } from './components/TelegramBotView';
 import { InvestmentView } from './components/InvestmentView';
+import { TelegramBotView } from './components/TelegramBotView';
 import { LoginScreen } from './components/LoginScreen';
 import { AccessDeniedScreen } from './components/AccessDeniedScreen';
 import { AuthorizedEmailsModal } from './components/AuthorizedEmailsModal';
@@ -152,8 +152,6 @@ function MainApp() {
                   onOpenAddCardModal={handleOpenAddCardModal}
                   onNavigateToCardsTab={() => setActiveTab('cartoes')}
                   onToggleCardPaid={toggleCardPaid}
-                  onNavigateToTelegram={() => setActiveTab('telegram')}
-                  telegramConfig={telegramConfig}
                 />
               )}
 
@@ -172,27 +170,9 @@ function MainApp() {
                   onUpdateCardPurchaseGroup={updateCardPurchaseGroup}
                   isAddModalOpen={isAddCardModalOpen}
                   setIsAddModalOpen={setIsAddCardModalOpen}
-                  onNavigateToTelegram={() => setActiveTab('telegram')}
-                  telegramConfig={telegramConfig}
                 />
               )}
 
-              {activeTab === 'telegram' && (
-                <TelegramBotView
-                  transactions={transactions}
-                  cards={cards}
-                  cardPurchases={cardPurchases}
-                  config={telegramConfig}
-                  onSaveConfig={updateTelegramConfig}
-                  onNavigateToBudget={() => {
-                    const nextMonth = getNextMonthBudget();
-                    setTargetBudgetMonth(nextMonth);
-                    setBudgetNavKey((prev) => prev + 1);
-                    setActiveTab('orcamento');
-                  }}
-                  onNavigateToCards={() => setActiveTab('cartoes')}
-                />
-              )}
 
               {activeTab === 'relatorios' && (
                 <ReportsView
@@ -228,6 +208,22 @@ function MainApp() {
                     setBudgetNavKey((prev) => prev + 1);
                     setActiveTab('orcamento');
                   }}
+                />
+              )}
+
+              {activeTab === 'telegram' && (
+                <TelegramBotView
+                  transactions={transactions}
+                  cards={cards}
+                  cardPurchases={cardPurchases}
+                  telegramConfig={telegramConfig}
+                  onUpdateTelegramConfig={updateTelegramConfig}
+                  onNavigateToBudget={(year, month) => {
+                    setTargetBudgetMonth({ year, month });
+                    setBudgetNavKey((prev) => prev + 1);
+                    setActiveTab('orcamento');
+                  }}
+                  onNavigateToCards={() => setActiveTab('cartoes')}
                 />
               )}
             </>

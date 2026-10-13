@@ -1,1214 +1,967 @@
-import React, { useState, useMemo, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
-  Send,
   Bot,
-  Clock,
+  Send,
   CheckCircle2,
-  AlertCircle,
+  AlertTriangle,
+  RefreshCw,
   ExternalLink,
+  MessageSquare,
+  ShieldCheck,
+  CreditCard,
+  CalendarCheck2,
+  Info,
+  Sparkles,
   Copy,
   Check,
-  RefreshCw,
-  Bell,
-  Sparkles,
-  DollarSign,
-  Calendar,
   Eye,
   EyeOff,
-  Power,
-  Info,
-  Smartphone,
-  ChevronRight,
-  ArrowUpRight,
-  ArrowDownRight,
-  CalendarCheck2,
-  Zap,
-  Activity,
-  ShieldCheck,
-  CheckCheck,
-  Globe,
+  Radio,
+  ArrowRight,
+  TrendingUp,
 } from 'lucide-react';
-import { Transaction, CreditCard, CardPurchase, TelegramBotConfig } from '../types';
-import {
-  calculateTelegramBudgetSummary,
-  buildTelegramMessage,
-} from '../utils/telegramFinance';
-import {
-  detectTelegramChatId,
-  sendTelegramMessage,
-  cleanTelegramToken,
-  cleanTelegramChatId,
-  getTelegramScheduleStatus,
-  triggerDailyTelegramNow,
-  registerTelegramScheduleOnServer,
-  ScheduleStatusResult,
-} from '../utils/telegramApi';
-import { formatCurrency } from '../utils/formatters';
+import { Transaction, CreditCard as CreditCardType, CardPurchase, TelegramBotConfig, TelegramLogItem } from '../types';
+import { formatCurrency, MONTH_NAMES } from '../utils/formatters';
+import { processTelegramQuery } from '../utils/telegramBotEngine';
 
 interface TelegramBotViewProps {
   transactions: Transaction[];
-  cards: CreditCard[];
+  cards: CreditCardType[];
   cardPurchases: CardPurchase[];
-  config: TelegramBotConfig;
-  onSaveConfig: (updated: Partial<TelegramBotConfig>) => Promise<void>;
-  onNavigateToBudget?: () => void;
+  telegramConfig: TelegramBotConfig;
+  onUpdateTelegramConfig: (newConfig: Partial<TelegramBotConfig>) => Promise<void>;
+  onNavigateToBudget?: (year: number, month: number) => void;
   onNavigateToCards?: () => void;
+}
+
+interface ChatMessage {
+  id: string;
+  sender: 'user' | 'bot';
+  text: string;
+  time: string;
 }
 
 export const TelegramBotView: React.FC<TelegramBotViewProps> = ({
   transactions,
   cards,
   cardPurchases,
-  config,
-  onSaveConfig,
+  telegramConfig,
+  onUpdateTelegramConfig,
   onNavigateToBudget,
   onNavigateToCards,
 }) => {
   // Local form state
-  const [botToken, setBotToken] = useState(config.botToken || '');
-  const [chatId, setChatId] = useState(config.chatId || '');
-  const [chatName, setChatName] = useState(config.chatName || '');
-  const [enabled, setEnabled] = useState(config.enabled ?? false);
-  const [scheduledTime, setScheduledTime] = useState(config.scheduledTime || '09:00');
-  const [messageTemplate, setMessageTemplate] = useState(config.messageTemplate || '');
+  const [tokenInput, setTokenInput] = useState(telegramConfig.botToken || '');
+  const [chatIdInput, setChatIdInput] = useState(telegramConfig.chatId || '');
+  const [isEnabled, setIsEnabled] = useState(telegramConfig.enabled || false);
   const [showToken, setShowToken] = useState(false);
 
-  // Server Scheduler Status State
-  const [serverStatus, setServerStatus] = useState<ScheduleStatusResult | null>(null);
-  const [isLoadingStatus, setIsLoadingStatus] = useState(false);
-  const [isTriggeringDaily, setIsTriggeringDaily] = useState(false);
-  const [dailyTriggerFeedback, setDailyTriggerFeedback] = useState<{ success: boolean; message: string } | null>(null);
-
-  // Action status states
-  const [isDetecting, setIsDetecting] = useState(false);
-  const [detectError, setDetectError] = useState<string | null>(null);
-  const [detectSuccess, setDetectSuccess] = useState<string | null>(null);
-  const [detectedBotUsername, setDetectedBotUsername] = useState<string | null>(null);
-  const [needInteraction, setNeedInteraction] = useState(false);
-
-  const [isSendingTest, setIsSendingTest] = useState(false);
-  const [testResult, setTestResult] = useState<{
-    success: boolean;
-    message: string;
-  } | null>(null);
-
+  // Status & feedback
   const [isSaving, setIsSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
-  const [copiedCronUrl, setCopiedCronUrl] = useState(false);
+  const [isTestingToken, setIsTestingToken] = useState(false);
+  const [tokenTestResult, setTokenTestResult] = useState<{ success: boolean; message: string; botName?: string } | null>(null);
+  const [isSendingTest, setIsSendingTest] = useState(false);
+  const [testSendResult, setTestSendResult] = useState<{ success: boolean; message: string } | null>(null);
+  const [isSyncingData, setIsSyncingData] = useState(false);
+  const [syncFeedback, setSyncFeedback] = useState<string | null>(null);
+  const [copiedText, setCopiedText] = useState<string | null>(null);
 
-  const cronUrl = typeof window !== 'undefined' ? `${window.location.origin}/api/telegram/cron-check` : '/api/telegram/cron-check';
+  // Interactive In-App Simulator
+  const [simQuery, setSimQuery] = useState('');
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>(() => {
+    return [
+      {
+        id: 'msg-init-1',
+        sender: 'bot',
+        text:
+          '👋 Olá! Sou o assistente do Sistema Cabe no Bolso.\n\n' +
+          'Tenho acesso em tempo real ao seu **Menu Orçamento** e **Menu Cartões de Crédito**.\n\n' +
+          '💡 Experimente me perguntar: *"Qual valor disponível no mês de novembro?"*',
+        time: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
+      },
+    ];
+  });
+  const [isSimulating, setIsSimulating] = useState(false);
+  const chatBottomRef = useRef<HTMLDivElement>(null);
 
-  const handleCopyCronUrl = () => {
-    navigator.clipboard.writeText(cronUrl);
-    setCopiedCronUrl(true);
-    setTimeout(() => setCopiedCronUrl(false), 3000);
+  // Server interaction logs
+  const [serverLogs, setServerLogs] = useState<TelegramLogItem[]>([]);
+  const [isLoadingLogs, setIsLoadingLogs] = useState(false);
+
+  // Keep inputs synced when prop updates
+  useEffect(() => {
+    setTokenInput(telegramConfig.botToken || '');
+    setChatIdInput(telegramConfig.chatId || '');
+    setIsEnabled(telegramConfig.enabled || false);
+  }, [telegramConfig]);
+
+  // Scroll simulator chat to bottom
+  useEffect(() => {
+    chatBottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [chatMessages]);
+
+  // Carrega logs de atendimento do servidor
+  const fetchLogs = async () => {
+    setIsLoadingLogs(true);
+    try {
+      const res = await fetch('/api/telegram/logs');
+      const data = await res.json();
+      if (data.success && Array.isArray(data.logs)) {
+        setServerLogs(data.logs);
+      }
+    } catch (err) {
+      // ignore
+    } finally {
+      setIsLoadingLogs(false);
+    }
   };
 
-  // Synchronize when prop changes
   useEffect(() => {
-    setBotToken(config.botToken || '');
-    setChatId(config.chatId || '');
-    setChatName(config.chatName || '');
-    setEnabled(config.enabled ?? false);
-    setScheduledTime(config.scheduledTime || '09:00');
-    setMessageTemplate(config.messageTemplate || '');
-  }, [config]);
-
-  // Budget summary calculation: Regra: se estamos em Outubro, o valor disponível é do mês de Novembro!
-  const summary = useMemo(() => {
-    return calculateTelegramBudgetSummary(transactions, cards, cardPurchases);
-  }, [transactions, cards, cardPurchases]);
-
-  // Message preview text
-  const previewMessage = useMemo(() => {
-    return buildTelegramMessage(summary, messageTemplate);
-  }, [summary, messageTemplate]);
-
-  // Fetch Server Scheduler Status
-  const fetchScheduleStatus = useCallback(async () => {
-    setIsLoadingStatus(true);
-    try {
-      const data = await getTelegramScheduleStatus('default_user');
-      setServerStatus(data);
-    } catch {
-      // silencioso
-    } finally {
-      setIsLoadingStatus(false);
-    }
+    fetchLogs();
+    const interval = setInterval(fetchLogs, 10000);
+    return () => clearInterval(interval);
   }, []);
 
-  useEffect(() => {
-    fetchScheduleStatus();
-    const timer = setInterval(fetchScheduleStatus, 10000);
-    return () => clearInterval(timer);
-  }, [fetchScheduleStatus]);
-
-  // Handle Detect Chat ID
-  const handleDetectChatId = async () => {
-    const cleanToken = cleanTelegramToken(botToken);
-    if (!cleanToken) {
-      setDetectError('Por favor, informe o Token do Bot gerado pelo @BotFather antes de detectar o Chat ID.');
-      return;
-    }
-    setBotToken(cleanToken);
-
-    setIsDetecting(true);
-    setDetectError(null);
-    setDetectSuccess(null);
-    setNeedInteraction(false);
-
+  // Sincroniza dados com o servidor manualmente
+  const handleManualSync = async () => {
+    setIsSyncingData(true);
+    setSyncFeedback(null);
     try {
-      const data = await detectTelegramChatId(cleanToken);
-
-      if (data.botUsername) {
-        setDetectedBotUsername(data.botUsername);
-      }
-
-      if (data.success && data.chatId) {
-        setChatId(String(data.chatId));
-        const detectedName = data.chatName || data.chatUsername || 'Telegram';
-        setChatName(detectedName);
-        setDetectSuccess(`Chat ID detectado com sucesso: ${data.chatId} (${detectedName})`);
-        setNeedInteraction(false);
-
-        // Auto-save the detected chatId
-        await onSaveConfig({
-          botToken: cleanToken,
-          chatId: String(data.chatId),
-          chatName: detectedName,
-        });
-
-        // Registra no servidor
-        await registerTelegramScheduleOnServer({
-          botToken: cleanToken,
-          chatId: String(data.chatId),
-          scheduledTime,
-          enabled,
-          messageText: previewMessage,
-        });
-        fetchScheduleStatus();
+      const res = await fetch('/api/telegram/sync-data', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ transactions, cards, cardPurchases }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setSyncFeedback(
+          `Sincronizado! O bot possui acesso a ${data.counts.transactions} transações de orçamento, ${data.counts.cards} cartões e ${data.counts.cardPurchases} compras.`
+        );
       } else {
-        setDetectError(data.error || 'Não foi possível encontrar mensagens recentes.');
-        if (data.needInteraction) {
-          setNeedInteraction(true);
-        }
+        setSyncFeedback('Erro ao sincronizar dados com o bot.');
       }
-    } catch (err: any) {
-      setDetectError(`Erro na requisição: ${err.message || 'Verifique sua conexão'}`);
+    } catch (e) {
+      setSyncFeedback('Erro de comunicação com o servidor.');
     } finally {
-      setIsDetecting(false);
+      setIsSyncingData(false);
+      setTimeout(() => setSyncFeedback(null), 6000);
     }
   };
 
-  // Handle Send Test Message
-  const handleSendTestMessage = async () => {
-    const cleanToken = cleanTelegramToken(botToken);
-    const cleanId = cleanTelegramChatId(chatId);
+  // Testa token com o BotFather via Telegram API
+  const handleTestToken = async () => {
+    if (!tokenInput.trim()) {
+      setTokenTestResult({ success: false, message: 'Digite o token do bot primeiro.' });
+      return;
+    }
+    setIsTestingToken(true);
+    setTokenTestResult(null);
 
-    if (!cleanToken || !cleanId) {
-      setTestResult({
+    try {
+      const res = await fetch('/api/telegram/test-connection', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ botToken: tokenInput.trim() }),
+      });
+      const data = await res.json();
+
+      if (data.success && data.bot) {
+        setTokenTestResult({
+          success: true,
+          message: `Bot validado com sucesso!`,
+          botName: `@${data.bot.username} (${data.bot.firstName})`,
+        });
+      } else {
+        setTokenTestResult({
+          success: false,
+          message: data.error || 'Token inválido ou rejeitado pelo Telegram.',
+        });
+      }
+    } catch (err: any) {
+      setTokenTestResult({ success: false, message: err.message || 'Falha ao conectar com o Telegram.' });
+    } finally {
+      setIsTestingToken(false);
+    }
+  };
+
+  // Salva configurações
+  const handleSaveConfig = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    setIsSaving(true);
+    setSaveSuccess(false);
+
+    try {
+      await onUpdateTelegramConfig({
+        botToken: tokenInput.trim(),
+        chatId: chatIdInput.trim(),
+        enabled: isEnabled,
+        autoPolling: true,
+      });
+      // Sincroniza dados logo após salvar
+      await fetch('/api/telegram/sync-data', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ transactions, cards, cardPurchases }),
+      });
+      setSaveSuccess(true);
+      setTimeout(() => setSaveSuccess(false), 4000);
+      fetchLogs();
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  // Envia mensagem de teste diretamente para o Telegram
+  const handleSendTestMessage = async () => {
+    if (!tokenInput.trim() || !chatIdInput.trim()) {
+      setTestSendResult({
         success: false,
-        message: 'Preencha o Token do Bot e o Chat ID para poder testar o envio.',
+        message: 'Preencha o Token do Bot e o Chat ID para realizar o teste.',
       });
       return;
     }
 
-    setBotToken(cleanToken);
-    setChatId(cleanId);
-
     setIsSendingTest(true);
-    setTestResult(null);
+    setTestSendResult(null);
 
     try {
-      const data = await sendTelegramMessage(cleanToken, cleanId, previewMessage);
+      // Garante que os dados mais recentes estejam sincronizados
+      await fetch('/api/telegram/sync-data', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ transactions, cards, cardPurchases }),
+      });
+
+      const res = await fetch('/api/telegram/send-test', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          botToken: tokenInput.trim(),
+          chatId: chatIdInput.trim(),
+        }),
+      });
+      const data = await res.json();
 
       if (data.success) {
-        setTestResult({
+        setTestSendResult({
           success: true,
-          message: '🎉 Mensagem de teste enviada com sucesso no seu Telegram! Verifique seu aplicativo.',
+          message: 'Mensagem enviada com sucesso! Verifique seu aplicativo do Telegram.',
         });
-        await onSaveConfig({
-          lastSentDate: new Date().toISOString().split('T')[0],
-          lastSentTimestamp: new Date().toISOString(),
-          lastSentStatus: 'success',
-          lastSentError: undefined,
-        });
-        fetchScheduleStatus();
+        fetchLogs();
       } else {
-        setTestResult({
+        setTestSendResult({
           success: false,
           message: data.error || 'Falha ao enviar mensagem de teste.',
         });
-        await onSaveConfig({
-          lastSentStatus: 'error',
-          lastSentError: data.error,
-        });
-        fetchScheduleStatus();
       }
     } catch (err: any) {
-      setTestResult({
+      setTestSendResult({
         success: false,
-        message: `Erro na comunicação: ${err.message || 'Verifique sua conexão'}`,
+        message: err.message || 'Erro de comunicação ao enviar mensagem.',
       });
     } finally {
       setIsSendingTest(false);
     }
   };
 
-  // Handle Trigger Daily Report Immediately
-  const handleTriggerDailyNow = async () => {
-    const cleanToken = cleanTelegramToken(botToken);
-    const cleanId = cleanTelegramChatId(chatId);
+  // Executa uma consulta no Simulador Interativo do Navegador
+  const handleRunSimulation = async (questionText: string) => {
+    const q = questionText.trim();
+    if (!q) return;
 
-    if (!cleanToken || !cleanId) {
-      setDailyTriggerFeedback({
-        success: false,
-        message: 'Configure e salve o Token e o Chat ID antes de disparar o relatório.',
-      });
-      return;
-    }
+    const userMsg: ChatMessage = {
+      id: `usr-${Date.now()}`,
+      sender: 'user',
+      text: q,
+      time: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
+    };
 
-    setIsTriggeringDaily(true);
-    setDailyTriggerFeedback(null);
+    setChatMessages((prev) => [...prev, userMsg]);
+    setSimQuery('');
+    setIsSimulating(true);
 
-    try {
-      const res = await triggerDailyTelegramNow({
-        userId: 'default_user',
-        botToken: cleanToken,
-        chatId: cleanId,
-        messageText: previewMessage,
-      });
+    // Processamento da resposta com acesso total ao Orçamento e Cartões
+    setTimeout(() => {
+      try {
+        const result = processTelegramQuery(q, {
+          transactions,
+          cards,
+          cardPurchases,
+        });
 
-      if (res.success) {
-        const todayStr = res.sentDate || new Date().toISOString().split('T')[0];
-        setDailyTriggerFeedback({
-          success: true,
-          message: `✅ Relatório diário de ${summary.monthName} entregue no seu Telegram às ${res.sentTime || 'agora'}!`,
-        });
-        await onSaveConfig({
-          lastSentDate: todayStr,
-          lastSentTimestamp: new Date().toISOString(),
-          lastSentStatus: 'success',
-          lastSentError: undefined,
-        });
-        fetchScheduleStatus();
-      } else {
-        setDailyTriggerFeedback({
-          success: false,
-          message: res.error || 'Falha ao entregar relatório diário no Telegram.',
-        });
-        await onSaveConfig({
-          lastSentStatus: 'error',
-          lastSentError: res.error,
-        });
-        fetchScheduleStatus();
+        const botMsg: ChatMessage = {
+          id: `bot-${Date.now()}`,
+          sender: 'bot',
+          text: result.text,
+          time: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
+        };
+
+        setChatMessages((prev) => [...prev, botMsg]);
+      } catch (err) {
+        const botMsg: ChatMessage = {
+          id: `bot-${Date.now()}`,
+          sender: 'bot',
+          text: '❌ Ocorreu um erro ao consultar os dados do orçamento.',
+          time: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
+        };
+        setChatMessages((prev) => [...prev, botMsg]);
+      } finally {
+        setIsSimulating(false);
       }
-    } catch (err: any) {
-      setDailyTriggerFeedback({
-        success: false,
-        message: `Erro ao disparar: ${err.message || 'Verifique sua conexão'}`,
-      });
-    } finally {
-      setIsTriggeringDaily(false);
-    }
+    }, 250);
   };
 
-  // Handle Save Settings
-  const handleSave = async () => {
-    setIsSaving(true);
-    setSaveSuccess(false);
-
-    try {
-      const cleanToken = botToken.trim();
-      const cleanId = chatId.trim();
-
-      await onSaveConfig({
-        botToken: cleanToken,
-        chatId: cleanId,
-        chatName: chatName.trim(),
-        enabled,
-        scheduledTime,
-        messageTemplate: messageTemplate.trim(),
-      });
-
-      // Registra imediatamente no backend e dispara se o horário de hoje já passou
-      if (cleanToken && cleanId) {
-        const regRes = await registerTelegramScheduleOnServer({
-          botToken: cleanToken,
-          chatId: cleanId,
-          scheduledTime,
-          enabled,
-          messageText: previewMessage,
-        });
-
-        if (regRes?.dispatchedNow) {
-          const todayStr = regRes.serverDate || new Date().toISOString().split('T')[0];
-          await onSaveConfig({
-            lastSentDate: todayStr,
-            lastSentTimestamp: new Date().toISOString(),
-            lastSentStatus: 'success',
-            lastSentError: undefined,
-          });
-          setDailyTriggerFeedback({
-            success: true,
-            message: `🎉 Configurações salvas e o relatório de hoje foi entregue no seu Telegram às ${regRes.serverTime || 'agora'}!`,
-          });
-        }
-        fetchScheduleStatus();
-      }
-
-      setSaveSuccess(true);
-      setTimeout(() => setSaveSuccess(false), 4000);
-    } catch (err: any) {
-      alert(`Erro ao salvar configurações: ${err.message}`);
-    } finally {
-      setIsSaving(false);
-    }
+  const handleCopy = (text: string, label: string) => {
+    navigator.clipboard.writeText(text);
+    setCopiedText(label);
+    setTimeout(() => setCopiedText(null), 2500);
   };
 
-  const isConfigured = Boolean(botToken.trim() && chatId.trim());
-  const serverTime = serverStatus?.serverTime || '--:--';
-  const serverDate = serverStatus?.serverDate || '';
-  const isSentToday = serverStatus?.isSentToday || config.lastSentDate === serverDate && config.lastSentStatus === 'success';
+  // Resumo de dados disponíveis para o Bot
+  const NovemberPreview = useMemo(() => {
+    const currentYear = new Date().getFullYear();
+    const novTxs = transactions.filter((t) => {
+      const parts = (t.date || '').split('-');
+      return parseInt(parts[0], 10) === currentYear && parseInt(parts[1], 10) === 11;
+    });
+
+    const salarios = novTxs.filter((t) => t.type === 'salario').reduce((acc, c) => acc + (c.amount || 0), 0);
+    const gastos = novTxs.filter((t) => t.type === 'gasto').reduce((acc, c) => acc + (c.amount || 0), 0);
+    const disponivel = Math.max(0, salarios - gastos);
+    const ultrapassou = Math.max(0, gastos - salarios);
+
+    return {
+      year: currentYear,
+      salarios,
+      gastos,
+      disponivel,
+      ultrapassou,
+      isOver: gastos > salarios,
+      txCount: novTxs.length,
+    };
+  }, [transactions]);
 
   return (
-    <div className="space-y-6 max-w-6xl mx-auto pb-12">
-      {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b border-zinc-800">
-        <div>
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-[#00ff7f]/10 border border-[#00ff7f]/30 flex items-center justify-center text-[#00ff7f] shadow-md shadow-[#00ff7f]/10">
-              <Bot className="w-5 h-5 text-[#00ff7f]" />
+    <div className="space-y-6 pb-12 animate-in fade-in duration-300">
+      {/* HEADER SECTION */}
+      <div className="bg-[#0e0e12] border border-zinc-800/80 rounded-2xl p-5 sm:p-6 shadow-xl relative overflow-hidden">
+        <div className="absolute top-0 right-0 w-96 h-96 bg-gradient-to-bl from-[#00ff7f]/10 via-sky-500/5 to-transparent rounded-full blur-3xl pointer-events-none" />
+
+        <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4 relative z-10">
+          <div className="flex items-start gap-4">
+            <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-[#00ff7f]/20 via-sky-500/20 to-blue-600/20 border border-[#00ff7f]/40 flex items-center justify-center shrink-0 shadow-lg shadow-[#00ff7f]/10">
+              <Bot className="w-6 h-6 text-[#00ff7f]" />
             </div>
             <div>
-              <div className="flex items-center gap-2">
-                <h1 className="text-xl font-bold text-white tracking-tight">
-                  Bot de Notificações Telegram
+              <div className="flex items-center gap-2.5 flex-wrap">
+                <h1 className="text-xl sm:text-2xl font-black text-white tracking-tight">
+                  Bot Telegram Inteligente
                 </h1>
-                <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-[#00ff7f]/15 text-[#00ff7f] border border-[#00ff7f]/30">
-                  DISPONÍVEL DO ORÇAMENTO
+                <span
+                  className={`text-[10px] font-bold uppercase tracking-wider px-2.5 py-0.5 rounded-full border flex items-center gap-1.5 ${
+                    isEnabled && telegramConfig.botToken
+                      ? 'bg-emerald-500/10 text-[#00ff7f] border-[#00ff7f]/30'
+                      : 'bg-zinc-800 text-zinc-400 border-zinc-700'
+                  }`}
+                >
+                  <span
+                    className={`w-1.5 h-1.5 rounded-full ${
+                      isEnabled && telegramConfig.botToken ? 'bg-[#00ff7f] animate-pulse' : 'bg-zinc-500'
+                    }`}
+                  />
+                  {isEnabled && telegramConfig.botToken ? 'Atendimento 24h Ativo' : 'Aguardando Configuração'}
                 </span>
+                {telegramConfig.botUsername && (
+                  <span className="text-xs text-sky-400 font-mono bg-sky-950/40 px-2 py-0.5 rounded border border-sky-800/50">
+                    @{telegramConfig.botUsername}
+                  </span>
+                )}
               </div>
-              <p className="text-xs text-zinc-400 mt-0.5">
-                O robô envia todo dia no horário agendado o valor disponível do Menu Orçamento Mensal para o mês seguinte
-              </p>
-            </div>
-          </div>
-        </div>
-
-        {/* Global Bot Status Badge */}
-        <div className="flex items-center gap-2 self-start md:self-auto">
-          <div
-            className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border text-xs font-semibold ${
-              enabled && isConfigured
-                ? 'bg-emerald-950/40 border-emerald-500/30 text-emerald-400'
-                : !isConfigured
-                ? 'bg-zinc-900 border-zinc-800 text-zinc-400'
-                : 'bg-amber-950/40 border-amber-500/30 text-amber-400'
-            }`}
-          >
-            <span
-              className={`w-2 h-2 rounded-full ${
-                enabled && isConfigured
-                  ? 'bg-emerald-400 animate-pulse'
-                  : !isConfigured
-                  ? 'bg-zinc-600'
-                  : 'bg-amber-400'
-              }`}
-            />
-            <span>
-              {enabled && isConfigured
-                ? `Ativo • Disparo diário às ${scheduledTime}`
-                : !isConfigured
-                ? 'Não Configurado'
-                : 'Configurado (Envio Pausado)'}
-            </span>
-          </div>
-
-          <button
-            onClick={() => {
-              const newStatus = !enabled;
-              setEnabled(newStatus);
-              onSaveConfig({ enabled: newStatus });
-            }}
-            disabled={!isConfigured}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-              !isConfigured
-                ? 'bg-zinc-900 text-zinc-600 border border-zinc-800 cursor-not-allowed'
-                : enabled
-                ? 'bg-red-500/10 text-red-400 border border-red-500/30 hover:bg-red-500/20'
-                : 'bg-[#00ff7f] text-black hover:bg-[#00ff7f]/90 font-black shadow-md shadow-[#00ff7f]/20'
-            }`}
-          >
-            <Power className="w-3.5 h-3.5" />
-            <span>{enabled ? 'Pausar Bot' : 'Ativar Bot'}</span>
-          </button>
-        </div>
-      </div>
-
-      {/* Real-time Calculation Highlight Card: Menu Orçamento Mensal */}
-      <div className="bg-gradient-to-br from-zinc-900/90 via-zinc-900/50 to-zinc-950 border border-zinc-800 rounded-2xl p-5 shadow-xl relative overflow-hidden">
-        <div className="absolute top-0 right-0 w-64 h-64 bg-[#00ff7f]/5 rounded-full blur-3xl pointer-events-none" />
-
-        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6 relative z-10">
-          <div>
-            <div className="flex items-center gap-2 text-xs font-semibold text-[#00ff7f] uppercase tracking-wider mb-1">
-              <CalendarCheck2 className="w-3.5 h-3.5" />
-              <span>Regra de Negócio: Menu Orçamento Mensal (Mês Seguinte)</span>
-            </div>
-            <h2 className="text-lg font-bold text-white">
-              Valor Disponível de {summary.monthName} / {summary.year}
-            </h2>
-            <p className="text-xs text-zinc-400 mt-1 max-w-xl">
-              Calculado exatamente como no <b>Menu Orçamento Mensal</b>: soma dos salários e receitas previstos para {summary.monthName} menos o total de gastos e faturas de cartão.
-            </p>
-          </div>
-
-          <div className="flex flex-wrap items-center gap-4 bg-black/40 border border-zinc-800/80 p-4 rounded-xl">
-            <div>
-              <span className="text-[11px] font-semibold text-zinc-400 block">
-                {summary.isOverBudget ? 'Orçamento Ultrapassou' : 'Disponível no Orçamento'}
-              </span>
-              <span
-                className={`text-2xl sm:text-3xl font-black tracking-tight ${
-                  summary.isOverBudget ? 'text-rose-400' : 'text-[#00ff7f]'
-                }`}
-              >
-                {summary.isOverBudget
-                  ? formatCurrency(summary.totalGastos - summary.totalSalario)
-                  : formatCurrency(summary.availableAmount)}
-              </span>
-            </div>
-
-            <div className="h-10 w-[1px] bg-zinc-800 hidden sm:block" />
-
-            <div>
-              <span className="text-[11px] font-semibold text-zinc-400 block flex items-center gap-1">
-                <ArrowUpRight className="w-3 h-3 text-[#00ff7f]" />
-                Salários ({summary.monthName})
-              </span>
-              <span className="text-sm sm:text-base font-bold text-emerald-400">
-                {formatCurrency(summary.totalSalario)}
-              </span>
-            </div>
-
-            <div className="h-10 w-[1px] bg-zinc-800 hidden sm:block" />
-
-            <div>
-              <span className="text-[11px] font-semibold text-zinc-400 block flex items-center gap-1">
-                <ArrowDownRight className="w-3 h-3 text-rose-400" />
-                Gastos ({summary.monthName})
-              </span>
-              <span className="text-sm sm:text-base font-bold text-rose-400">
-                {formatCurrency(summary.totalGastos)}
-              </span>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* PAINEL DE DIAGNÓSTICO & STATUS DO DISPARO DIÁRIO */}
-      <div className="bg-[#0b0f0d] border border-zinc-800 hover:border-[#00ff7f]/40 transition-all rounded-2xl p-5 shadow-xl space-y-4">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 border-b border-zinc-900 pb-3">
-          <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-lg bg-[#00ff7f]/10 border border-[#00ff7f]/30 flex items-center justify-center text-[#00ff7f]">
-              <Activity className="w-4 h-4" />
-            </div>
-            <div>
-              <h3 className="text-sm font-bold text-white flex items-center gap-2">
-                <span>Diagnóstico do Sistema de Envio Automático</span>
-                {isLoadingStatus && <RefreshCw className="w-3 h-3 animate-spin text-zinc-500" />}
-              </h3>
-              <p className="text-[11px] text-zinc-400">
-                Monitoramento em tempo real do agendador diário às <b>{scheduledTime}</b> (Fuso de Brasília/Fortaleza)
+              <p className="text-sm text-zinc-400 mt-1 max-w-2xl leading-relaxed">
+                Assistente financeiro com <strong className="text-zinc-200">acesso total e em tempo real</strong> ao
+                seu <span className="text-[#00ff7f] font-medium">Menu Orçamento</span> e{' '}
+                <span className="text-sky-400 font-medium">Menu Cartões de Crédito</span>. Pergunte qualquer valor pelo
+                Telegram e receba respostas instantâneas!
               </p>
             </div>
           </div>
 
-          <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex items-center gap-2 self-stretch sm:self-auto shrink-0">
             <button
-              onClick={fetchScheduleStatus}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-300 border border-zinc-700 text-xs font-semibold cursor-pointer transition-all"
-              title="Atualizar status do servidor"
+              onClick={handleManualSync}
+              disabled={isSyncingData}
+              className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-3.5 py-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-300 hover:text-white text-xs font-semibold transition-all cursor-pointer disabled:opacity-50"
+              title="Garante que as últimas transações e faturas estejam na memória do bot"
             >
-              <RefreshCw className={`w-3.5 h-3.5 ${isLoadingStatus ? 'animate-spin text-[#00ff7f]' : ''}`} />
-              <span>Verificar Servidor</span>
-            </button>
-
-            <button
-              onClick={handleTriggerDailyNow}
-              disabled={isTriggeringDaily || !isConfigured}
-              className={`flex items-center gap-1.5 px-4 py-1.5 rounded-xl text-xs font-black transition-all cursor-pointer shadow-md ${
-                !isConfigured
-                  ? 'bg-zinc-900 text-zinc-600 border border-zinc-800 cursor-not-allowed'
-                  : 'bg-[#00ff7f] hover:bg-[#00ff7f]/90 text-black shadow-[#00ff7f]/20 active:scale-95'
-              }`}
-              title="Dispara a mensagem diária com os valores de hoje imediatamente para o seu Telegram"
-            >
-              <Zap className="w-3.5 h-3.5 fill-black" />
-              <span>{isTriggeringDaily ? 'Enviando...' : '⚡ Disparar Relatório de Hoje Agora'}</span>
+              <RefreshCw className={`w-3.5 h-3.5 text-[#00ff7f] ${isSyncingData ? 'animate-spin' : ''}`} />
+              <span>{isSyncingData ? 'Sincronizando...' : 'Sincronizar Dados'}</span>
             </button>
           </div>
         </div>
 
-        {dailyTriggerFeedback && (
-          <div
-            className={`p-3.5 rounded-xl border text-xs flex items-start gap-2.5 leading-relaxed ${
-              dailyTriggerFeedback.success
-                ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300'
-                : 'bg-red-500/10 border-red-500/30 text-red-300'
-            }`}
-          >
-            {dailyTriggerFeedback.success ? (
-              <CheckCheck className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
-            ) : (
-              <AlertCircle className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
-            )}
-            <div>{dailyTriggerFeedback.message}</div>
+        {syncFeedback && (
+          <div className="mt-4 p-3 rounded-xl bg-[#00ff7f]/10 border border-[#00ff7f]/30 text-xs text-[#00ff7f] flex items-center gap-2">
+            <CheckCircle2 className="w-4 h-4 shrink-0" />
+            <span>{syncFeedback}</span>
           </div>
         )}
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-          {/* Card 1: Horário Atual no Servidor */}
-          <div className="p-3.5 rounded-xl bg-black/60 border border-zinc-850 space-y-1">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 block flex items-center gap-1.5">
-              <Clock className="w-3 h-3 text-[#00ff7f]" />
-              Hora de Brasília / Fortaleza
-            </span>
-            <div className="flex items-baseline gap-2">
-              <span className="text-xl font-black font-mono text-white">
-                {serverTime}
-              </span>
-              <span className="text-[10px] text-zinc-500 font-mono">
-                {serverDate || new Date().toISOString().split('T')[0]}
-              </span>
+        {/* STATUS CARDS DE ACESSO */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-5 pt-5 border-t border-zinc-800/80">
+          <div className="p-3 rounded-xl bg-[#070709] border border-zinc-800/60 flex items-center justify-between">
+            <div className="flex items-center gap-2.5">
+              <CalendarCheck2 className="w-4 h-4 text-[#00ff7f]" />
+              <div>
+                <p className="text-[11px] text-zinc-400">Acesso ao Orçamento</p>
+                <p className="text-xs font-bold text-white">
+                  {transactions.length} movimentações sincronizadas
+                </p>
+              </div>
             </div>
-            <span className="text-[10px] text-zinc-500 block">
-              Horário configurado: <b>{scheduledTime}</b>
+            <span className="text-[10px] font-bold text-[#00ff7f] bg-[#00ff7f]/10 px-2 py-0.5 rounded border border-[#00ff7f]/20">
+              Conectado
             </span>
           </div>
 
-          {/* Card 2: Status do Envio de Hoje */}
-          <div
-            className={`p-3.5 rounded-xl border space-y-1 ${
-              isSentToday
-                ? 'bg-emerald-950/20 border-emerald-500/30 text-emerald-300'
-                : enabled
-                ? 'bg-amber-950/20 border-amber-500/30 text-amber-300'
-                : 'bg-zinc-950 border-zinc-850 text-zinc-400'
-            }`}
-          >
-            <span className="text-[10px] font-bold uppercase tracking-wider block flex items-center gap-1.5">
-              <ShieldCheck className="w-3 h-3 text-[#00ff7f]" />
-              Status de Envio (Hoje)
-            </span>
-            <div className="text-sm font-bold truncate">
-              {isSentToday
-                ? '✅ Enviado com Sucesso Hoje'
-                : enabled
-                ? '⏳ Pendente / Aguardando'
-                : 'Bot Desativado'}
+          <div className="p-3 rounded-xl bg-[#070709] border border-zinc-800/60 flex items-center justify-between">
+            <div className="flex items-center gap-2.5">
+              <CreditCard className="w-4 h-4 text-sky-400" />
+              <div>
+                <p className="text-[11px] text-zinc-400">Acesso aos Cartões</p>
+                <p className="text-xs font-bold text-white">
+                  {cards.length} cartões ({cardPurchases.length} compras)
+                </p>
+              </div>
             </div>
-            <span className="text-[10px] text-zinc-400 block truncate">
-              {isSentToday
-                ? `Disparado em ${config.lastSentDate}`
-                : enabled
-                ? `Programado para ${scheduledTime}`
-                : 'Ative o bot para receber'}
+            <span className="text-[10px] font-bold text-sky-400 bg-sky-500/10 px-2 py-0.5 rounded border border-sky-500/20">
+              Conectado
             </span>
           </div>
 
-          {/* Card 3: Próxima Execução */}
-          <div className="p-3.5 rounded-xl bg-black/60 border border-zinc-850 space-y-1">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 block flex items-center gap-1.5">
-              <Calendar className="w-3 h-3 text-sky-400" />
-              Próximo Disparo
-            </span>
-            <div className="text-sm font-bold text-white truncate">
-              {serverStatus?.nextRun || (enabled ? `Hoje às ${scheduledTime}` : 'Desativado')}
+          <div className="p-3 rounded-xl bg-[#070709] border border-zinc-800/60 flex items-center justify-between">
+            <div className="flex items-center gap-2.5">
+              <Radio className={`w-4 h-4 ${isEnabled ? 'text-[#00ff7f]' : 'text-zinc-500'}`} />
+              <div>
+                <p className="text-[11px] text-zinc-400">Escuta Contínua (Polling)</p>
+                <p className="text-xs font-bold text-white">
+                  {isEnabled ? 'Serviço Ativo 24/7' : 'Desativado'}
+                </p>
+              </div>
             </div>
-            <span className="text-[10px] text-zinc-500 block">
-              1 disparo diário por usuário
-            </span>
-          </div>
-
-          {/* Card 4: Conexão com Telegram */}
-          <div className="p-3.5 rounded-xl bg-black/60 border border-zinc-850 space-y-1">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 block flex items-center gap-1.5">
-              <Bot className="w-3 h-3 text-[#00ff7f]" />
-              Conexão com Robô
-            </span>
-            <div className="text-sm font-bold text-white truncate">
-              {isConfigured ? (chatName || `Chat ${chatId}`) : 'Não Configurado'}
-            </div>
-            <span className="text-[10px] text-zinc-500 block truncate">
-              {botToken ? 'Token salvo no banco' : 'Cole o Token do Bot'}
+            <span
+              className={`text-[10px] font-bold px-2 py-0.5 rounded border ${
+                isEnabled
+                  ? 'text-[#00ff7f] bg-[#00ff7f]/10 border-[#00ff7f]/20'
+                  : 'text-zinc-500 bg-zinc-800/40 border-zinc-700/50'
+              }`}
+            >
+              {isEnabled ? 'Online' : 'Pausado'}
             </span>
           </div>
         </div>
+      </div>
 
-        {/* Explicação: O sistema precisa estar aberto? */}
-        <div className="p-4 rounded-xl bg-zinc-950/90 border border-zinc-800 space-y-3">
-          <div className="flex items-center gap-2 text-white font-bold text-xs sm:text-sm">
-            <Info className="w-4 h-4 text-[#00ff7f] shrink-0" />
-            <span>O sistema precisa estar com a tela aberta para disparar às {scheduledTime}?</span>
+      {/* MAIN TWO-COLUMN SECTION: CONFIGURATION & SIMULATOR */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+        {/* COLUMN 1: BOT CONFIGURATION (5 cols) */}
+        <div className="lg:col-span-5 space-y-6">
+          <div className="bg-[#0e0e12] border border-zinc-800/80 rounded-2xl p-5 sm:p-6 shadow-lg">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2">
+                <ShieldCheck className="w-5 h-5 text-[#00ff7f]" />
+                <h2 className="text-base font-bold text-white">Credenciais do Bot</h2>
+              </div>
+              <span className="text-xs text-zinc-500 font-mono">Telegram API</span>
+            </div>
+
+            <form onSubmit={handleSaveConfig} className="space-y-4">
+              {/* BOT TOKEN */}
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="text-xs font-semibold text-zinc-300">
+                    Token do Bot (@BotFather) <span className="text-[#00ff7f]">*</span>
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => setShowToken(!showToken)}
+                    className="text-[11px] text-zinc-400 hover:text-zinc-200 flex items-center gap-1 cursor-pointer"
+                  >
+                    {showToken ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3 text-[#00ff7f]" />}
+                    <span>{showToken ? 'Ocultar' : 'Mostrar'}</span>
+                  </button>
+                </div>
+                <div className="relative">
+                  <input
+                    type={showToken ? 'text' : 'password'}
+                    value={tokenInput}
+                    onChange={(e) => setTokenInput(e.target.value)}
+                    placeholder="Ex: 7123456789:AAFlkJg5k..."
+                    className="w-full bg-[#070709] border border-zinc-800 focus:border-[#00ff7f] rounded-xl px-3.5 py-2.5 text-xs text-white placeholder-zinc-600 focus:outline-none transition-colors font-mono"
+                  />
+                </div>
+                <div className="flex items-center justify-between mt-1.5">
+                  <span className="text-[11px] text-zinc-500">
+                    Criado no Telegram pelo <span className="text-zinc-400 font-mono">@BotFather</span>
+                  </span>
+                  <button
+                    type="button"
+                    onClick={handleTestToken}
+                    disabled={isTestingToken || !tokenInput.trim()}
+                    className="text-[11px] font-semibold text-[#00ff7f] hover:underline flex items-center gap-1 cursor-pointer disabled:opacity-40"
+                  >
+                    <RefreshCw className={`w-3 h-3 ${isTestingToken ? 'animate-spin' : ''}`} />
+                    <span>{isTestingToken ? 'Validando...' : 'Verificar Token'}</span>
+                  </button>
+                </div>
+
+                {tokenTestResult && (
+                  <div
+                    className={`mt-2 p-2.5 rounded-lg text-xs flex items-center gap-2 ${
+                      tokenTestResult.success
+                        ? 'bg-emerald-950/40 border border-[#00ff7f]/40 text-[#00ff7f]'
+                        : 'bg-rose-950/40 border border-rose-800/40 text-rose-300'
+                    }`}
+                  >
+                    {tokenTestResult.success ? (
+                      <CheckCircle2 className="w-4 h-4 shrink-0" />
+                    ) : (
+                      <AlertTriangle className="w-4 h-4 shrink-0" />
+                    )}
+                    <div>
+                      <p className="font-semibold">{tokenTestResult.message}</p>
+                      {tokenTestResult.botName && (
+                        <p className="text-[11px] opacity-90">{tokenTestResult.botName}</p>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* CHAT ID */}
+              <div>
+                <label className="block text-xs font-semibold text-zinc-300 mb-1.5">
+                  Seu Chat ID do Telegram <span className="text-zinc-500">(para notificações e testes)</span>
+                </label>
+                <input
+                  type="text"
+                  value={chatIdInput}
+                  onChange={(e) => setChatIdInput(e.target.value)}
+                  placeholder="Ex: 123456789"
+                  className="w-full bg-[#070709] border border-zinc-800 focus:border-[#00ff7f] rounded-xl px-3.5 py-2.5 text-xs text-white placeholder-zinc-600 focus:outline-none transition-colors font-mono"
+                />
+                <p className="text-[11px] text-zinc-500 mt-1">
+                  Para descobrir seu ID, envie qualquer mensagem para o bot{' '}
+                  <span className="text-sky-400 font-mono">@userinfobot</span> no Telegram.
+                </p>
+              </div>
+
+              {/* TOGGLE ATENDIMENTO */}
+              <div className="p-3.5 rounded-xl bg-[#070709] border border-zinc-800/70 flex items-center justify-between">
+                <div>
+                  <p className="text-xs font-bold text-white">Ativar Atendimento do Bot</p>
+                  <p className="text-[11px] text-zinc-400">
+                    Responde perguntas e comandos diretamente no Telegram
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setIsEnabled(!isEnabled)}
+                  className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                    isEnabled ? 'bg-[#00ff7f]' : 'bg-zinc-700'
+                  }`}
+                >
+                  <span
+                    className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-black shadow ring-0 transition duration-200 ease-in-out ${
+                      isEnabled ? 'translate-x-5' : 'translate-x-0'
+                    }`}
+                  />
+                </button>
+              </div>
+
+              {/* BOTÕES DE SALVAR E TESTAR */}
+              <div className="pt-2 flex flex-col gap-2.5">
+                <button
+                  type="submit"
+                  disabled={isSaving}
+                  className="w-full py-2.5 rounded-xl bg-gradient-to-r from-[#00ff7f] to-emerald-400 hover:from-[#00ff7f]/90 hover:to-emerald-300 text-black font-black text-xs uppercase tracking-wider flex items-center justify-center gap-2 transition-all cursor-pointer shadow-lg shadow-[#00ff7f]/20 disabled:opacity-50"
+                >
+                  {isSaving ? (
+                    <>
+                      <RefreshCw className="w-4 h-4 animate-spin" />
+                      <span>Salvando...</span>
+                    </>
+                  ) : saveSuccess ? (
+                    <>
+                      <Check className="w-4 h-4" />
+                      <span>Configuração Salva com Sucesso!</span>
+                    </>
+                  ) : (
+                    <>
+                      <CheckCircle2 className="w-4 h-4" />
+                      <span>Salvar Configuração do Bot</span>
+                    </>
+                  )}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleSendTestMessage}
+                  disabled={isSendingTest || !tokenInput.trim() || !chatIdInput.trim()}
+                  className="w-full py-2 rounded-xl bg-sky-950/40 hover:bg-sky-900/40 border border-sky-800/60 text-sky-300 font-bold text-xs flex items-center justify-center gap-2 transition-all cursor-pointer disabled:opacity-40"
+                >
+                  <Send className={`w-3.5 h-3.5 ${isSendingTest ? 'animate-spin' : ''}`} />
+                  <span>{isSendingTest ? 'Enviando...' : 'Enviar Mensagem de Teste no Telegram'}</span>
+                </button>
+
+                {testSendResult && (
+                  <div
+                    className={`p-2.5 rounded-lg text-xs flex items-center gap-2 ${
+                      testSendResult.success
+                        ? 'bg-emerald-950/40 border border-[#00ff7f]/40 text-[#00ff7f]'
+                        : 'bg-rose-950/40 border border-rose-800/40 text-rose-300'
+                    }`}
+                  >
+                    {testSendResult.success ? (
+                      <CheckCircle2 className="w-4 h-4 shrink-0" />
+                    ) : (
+                      <AlertTriangle className="w-4 h-4 shrink-0" />
+                    )}
+                    <p>{testSendResult.message}</p>
+                  </div>
+                )}
+              </div>
+            </form>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
-            <div className="p-3 rounded-lg bg-zinc-900/70 border border-zinc-800/80 space-y-1.5">
-              <span className="font-semibold text-emerald-400 block flex items-center gap-1.5">
-                <CheckCircle2 className="w-3.5 h-3.5" />
-                1. Com a tela aberta
-              </span>
-              <p className="text-zinc-400 leading-relaxed text-[11px]">
-                Se a aba estiver aberta (no PC ou celular), o agendador do servidor dispara <b>pontualmente às {scheduledTime}</b> no fuso de Brasília.
-              </p>
-            </div>
-
-            <div className="p-3 rounded-lg bg-zinc-900/70 border border-zinc-800/80 space-y-1.5">
-              <span className="font-semibold text-amber-400 block flex items-center gap-1.5">
-                <Activity className="w-3.5 h-3.5" />
-                2. Com a tela fechada (Recuperação)
-              </span>
-              <p className="text-zinc-400 leading-relaxed text-[11px]">
-                Na nuvem (Cloud Run), o servidor entra em repouso à noite sem tráfego. Assim que você <b>abrir o sistema a qualquer hora após as {scheduledTime}</b>, o sistema detecta que o envio de hoje está pendente e <b>dispara na mesma hora</b>!
-              </p>
-            </div>
-
-            <div className="p-3 rounded-lg bg-zinc-900/70 border border-emerald-500/30 space-y-1.5">
-              <span className="font-semibold text-[#00ff7f] block flex items-center gap-1.5">
-                <Globe className="w-3.5 h-3.5" />
-                3. Envio 100% Autônomo (Sem abrir nada)
-              </span>
-              <p className="text-zinc-400 leading-relaxed text-[11px]">
-                Para receber mesmo com o PC/celular desligados, cadastre a URL de Webhook abaixo num serviço gratuito (ex: <a href="https://cron-job.org" target="_blank" rel="noreferrer" className="text-[#00ff7f] underline">cron-job.org</a>) para chamar todo dia às {scheduledTime}.
-              </p>
-            </div>
+          {/* GUIA PASSO A PASSO */}
+          <div className="bg-[#0e0e12] border border-zinc-800/80 rounded-2xl p-5 shadow-lg">
+            <h3 className="text-xs font-bold uppercase tracking-wider text-zinc-400 mb-3 flex items-center gap-1.5">
+              <Sparkles className="w-3.5 h-3.5 text-[#00ff7f]" />
+              Como Criar seu Bot no Telegram (1 minuto)
+            </h3>
+            <ol className="space-y-2.5 text-xs text-zinc-300">
+              <li className="flex items-start gap-2">
+                <span className="w-5 h-5 rounded-full bg-zinc-800 text-[#00ff7f] font-bold flex items-center justify-center shrink-0 text-[10px]">
+                  1
+                </span>
+                <span>
+                  Abra o Telegram e busque por{' '}
+                  <strong className="text-white font-mono">@BotFather</strong>.
+                </span>
+              </li>
+              <li className="flex items-start gap-2">
+                <span className="w-5 h-5 rounded-full bg-zinc-800 text-[#00ff7f] font-bold flex items-center justify-center shrink-0 text-[10px]">
+                  2
+                </span>
+                <span>
+                  Envie o comando <strong className="text-[#00ff7f] font-mono">/newbot</strong> e escolha um nome e um
+                  username (deve terminar com <em>bot</em>).
+                </span>
+              </li>
+              <li className="flex items-start gap-2">
+                <span className="w-5 h-5 rounded-full bg-zinc-800 text-[#00ff7f] font-bold flex items-center justify-center shrink-0 text-[10px]">
+                  3
+                </span>
+                <span>
+                  Copie o <strong>HTTP API Token</strong> gerado e cole no campo "Token do Bot" acima.
+                </span>
+              </li>
+              <li className="flex items-start gap-2">
+                <span className="w-5 h-5 rounded-full bg-zinc-800 text-[#00ff7f] font-bold flex items-center justify-center shrink-0 text-[10px]">
+                  4
+                </span>
+                <span>
+                  Abra a conversa com o seu novo bot no Telegram e envie{' '}
+                  <strong className="text-[#00ff7f] font-mono">/start</strong>.
+                </span>
+              </li>
+              <li className="flex items-start gap-2">
+                <span className="w-5 h-5 rounded-full bg-zinc-800 text-[#00ff7f] font-bold flex items-center justify-center shrink-0 text-[10px]">
+                  5
+                </span>
+                <span>
+                  Clique em <strong>Salvar</strong>! Agora você pode perguntar qualquer coisa do orçamento pelo celular!
+                </span>
+              </li>
+            </ol>
           </div>
+        </div>
 
-          {/* Webhook URL Copy Box */}
-          <div className="pt-2 border-t border-zinc-900 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5 text-xs">
-            <div className="flex items-center gap-2 overflow-hidden text-zinc-400 font-mono text-[11px] bg-black/60 px-3 py-1.5 rounded-lg border border-zinc-850 flex-1">
-              <span className="text-zinc-500 select-none">URL de Acionamento:</span>
-              <span className="text-[#00ff7f] truncate select-all">{cronUrl}</span>
+        {/* COLUMN 2: INTERACTIVE SIMULATOR & REAL DATA PREVIEW (7 cols) */}
+        <div className="lg:col-span-7 space-y-6">
+          {/* SIMULADOR INTERATIVO DO BOT */}
+          <div className="bg-[#0e0e12] border border-zinc-800/80 rounded-2xl shadow-xl overflow-hidden flex flex-col h-[580px]">
+            {/* SIMULATOR HEADER */}
+            <div className="p-4 bg-[#0a0a0d] border-b border-zinc-800/80 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="relative">
+                  <div className="w-9 h-9 rounded-full bg-gradient-to-tr from-[#00ff7f] to-sky-400 flex items-center justify-center text-black font-bold text-sm shadow">
+                    🤖
+                  </div>
+                  <span className="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full bg-[#00ff7f] ring-2 ring-black" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-sm font-bold text-white">Simulador do Bot Telegram</h3>
+                    <span className="text-[10px] text-[#00ff7f] font-mono bg-[#00ff7f]/10 px-1.5 py-0.5 rounded">
+                      Ao Vivo
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-zinc-400">
+                    Testa as perguntas diretamente contra os dados reais do seu Orçamento
+                  </p>
+                </div>
+              </div>
+
+              <button
+                onClick={() => {
+                  setChatMessages([
+                    {
+                      id: `rst-${Date.now()}`,
+                      sender: 'bot',
+                      text: 'Histórico reiniciado. Faça uma pergunta sobre seu orçamento ou cartões!',
+                      time: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
+                    },
+                  ]);
+                }}
+                className="text-xs text-zinc-500 hover:text-zinc-300 transition-colors cursor-pointer"
+                title="Limpar histórico do simulador"
+              >
+                Limpar Chat
+              </button>
             </div>
-            <div className="flex items-center gap-2 shrink-0">
+
+            {/* CHAT MESSAGES BODY */}
+            <div className="flex-1 p-4 overflow-y-auto space-y-3 bg-[#070709]/80 font-sans">
+              {chatMessages.map((msg) => (
+                <div
+                  key={msg.id}
+                  className={`flex ${msg.sender === 'user' ? 'justify-end' : 'justify-start'}`}
+                >
+                  <div
+                    className={`max-w-[85%] rounded-2xl px-4 py-3 text-xs leading-relaxed whitespace-pre-line shadow-md ${
+                      msg.sender === 'user'
+                        ? 'bg-[#00ff7f] text-black font-medium rounded-br-none'
+                        : 'bg-zinc-900/90 text-zinc-200 border border-zinc-800/80 rounded-bl-none'
+                    }`}
+                  >
+                    <div className="break-words">{msg.text}</div>
+                    <div
+                      className={`text-[9px] mt-1.5 text-right ${
+                        msg.sender === 'user' ? 'text-black/60 font-mono' : 'text-zinc-500 font-mono'
+                      }`}
+                    >
+                      {msg.time}
+                    </div>
+                  </div>
+                </div>
+              ))}
+              {isSimulating && (
+                <div className="flex justify-start">
+                  <div className="bg-zinc-900 border border-zinc-800 rounded-2xl px-4 py-2.5 rounded-bl-none text-xs text-zinc-400 flex items-center gap-2">
+                    <span className="w-1.5 h-1.5 rounded-full bg-[#00ff7f] animate-ping" />
+                    <span>Calculando orçamento no banco de dados...</span>
+                  </div>
+                </div>
+              )}
+              <div ref={chatBottomRef} />
+            </div>
+
+            {/* QUICK SUGGESTIONS PILLS */}
+            <div className="p-2.5 bg-[#0a0a0d] border-t border-zinc-800/80 flex items-center gap-1.5 overflow-x-auto text-xs no-scrollbar">
+              <span className="text-[10px] uppercase font-bold text-zinc-500 px-1 shrink-0">
+                Sugestões:
+              </span>
               <button
                 type="button"
-                onClick={handleCopyCronUrl}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border border-zinc-700 font-medium text-xs cursor-pointer transition-all active:scale-95"
+                onClick={() => handleRunSimulation('qual valor disponivel no mês de novembro?')}
+                className="px-2.5 py-1 rounded-full bg-[#00ff7f]/10 hover:bg-[#00ff7f]/20 border border-[#00ff7f]/30 text-[#00ff7f] text-[11px] font-semibold shrink-0 transition-colors cursor-pointer flex items-center gap-1"
               >
-                {copiedCronUrl ? (
-                  <>
-                    <Check className="w-3.5 h-3.5 text-[#00ff7f]" />
-                    <span className="text-[#00ff7f] font-bold">Copiado!</span>
-                  </>
-                ) : (
-                  <>
-                    <Copy className="w-3.5 h-3.5" />
-                    <span>Copiar URL do Cron</span>
-                  </>
-                )}
+                <span>⭐ Disponível em Novembro?</span>
               </button>
-              <a
-                href="https://cron-job.org"
-                target="_blank"
-                rel="noreferrer"
-                className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-emerald-950/40 border border-emerald-500/30 text-emerald-300 hover:bg-emerald-900/40 text-xs font-semibold transition-all"
+              <button
+                type="button"
+                onClick={() => handleRunSimulation('quanto sobrou neste mês?')}
+                className="px-2.5 py-1 rounded-full bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-[11px] shrink-0 transition-colors cursor-pointer"
               >
-                <span>cron-job.org</span>
-                <ExternalLink className="w-3 h-3" />
-              </a>
+                Sobrou neste mês?
+              </button>
+              <button
+                type="button"
+                onClick={() => handleRunSimulation('qual o valor da fatura dos cartões?')}
+                className="px-2.5 py-1 rounded-full bg-sky-950/40 hover:bg-sky-900/40 border border-sky-800/40 text-sky-300 text-[11px] shrink-0 transition-colors cursor-pointer"
+              >
+                Faturas dos Cartões
+              </button>
+              <button
+                type="button"
+                onClick={() => handleRunSimulation('quais os gastos e despesas de novembro?')}
+                className="px-2.5 py-1 rounded-full bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-[11px] shrink-0 transition-colors cursor-pointer"
+              >
+                Gastos de Novembro
+              </button>
+              <button
+                type="button"
+                onClick={() => handleRunSimulation('/ajuda')}
+                className="px-2.5 py-1 rounded-full bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-[11px] shrink-0 transition-colors cursor-pointer"
+              >
+                /ajuda
+              </button>
+            </div>
+
+            {/* INPUT CHAT FORM */}
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                handleRunSimulation(simQuery);
+              }}
+              className="p-3 bg-[#0e0e12] border-t border-zinc-800/80 flex items-center gap-2"
+            >
+              <input
+                type="text"
+                value={simQuery}
+                onChange={(e) => setSimQuery(e.target.value)}
+                placeholder="Pergunte ex: Qual valor disponível no mês de novembro?"
+                className="flex-1 bg-[#070709] border border-zinc-800 focus:border-[#00ff7f] rounded-xl px-4 py-2.5 text-xs text-white placeholder-zinc-500 focus:outline-none transition-colors"
+              />
+              <button
+                type="submit"
+                disabled={!simQuery.trim() || isSimulating}
+                className="px-4 py-2.5 rounded-xl bg-[#00ff7f] hover:bg-[#00ff7f]/90 text-black font-bold text-xs flex items-center gap-1.5 transition-all cursor-pointer disabled:opacity-40"
+              >
+                <Send className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">Perguntar</span>
+              </button>
+            </form>
+          </div>
+
+          {/* CARD PREVIEW: DADOS DE NOVEMBRO (EXEMPLO ESPECIFICADO PELO USUÁRIO) */}
+          <div className="bg-[#0e0e12] border border-zinc-800/80 rounded-2xl p-5 shadow-lg">
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <CalendarCheck2 className="w-4 h-4 text-[#00ff7f]" />
+                <h3 className="text-sm font-bold text-white">
+                  Dados Reais do Menu Orçamento — Novembro/{NovemberPreview.year}
+                </h3>
+              </div>
+              {onNavigateToBudget && (
+                <button
+                  onClick={() => onNavigateToBudget(NovemberPreview.year, 10)}
+                  className="text-xs text-[#00ff7f] hover:underline flex items-center gap-1 cursor-pointer font-semibold"
+                >
+                  <span>Abrir no Orçamento</span>
+                  <ArrowRight className="w-3 h-3" />
+                </button>
+              )}
+            </div>
+
+            <p className="text-xs text-zinc-400 mb-4">
+              Estes são os valores calculados que o bot do Telegram acessa quando o usuário pergunta sobre o mês de{' '}
+              <strong className="text-zinc-200">Novembro</strong>:
+            </p>
+
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <div className="p-3 rounded-xl bg-[#070709] border border-zinc-800/70">
+                <span className="text-[10px] text-zinc-500 uppercase font-semibold">Salários</span>
+                <p className="text-sm font-bold text-white mt-0.5">
+                  {formatCurrency(NovemberPreview.salarios)}
+                </p>
+              </div>
+
+              <div className="p-3 rounded-xl bg-[#070709] border border-zinc-800/70">
+                <span className="text-[10px] text-zinc-500 uppercase font-semibold">Gastos Totais</span>
+                <p className="text-sm font-bold text-rose-400 mt-0.5">
+                  {formatCurrency(NovemberPreview.gastos)}
+                </p>
+              </div>
+
+              <div
+                className={`p-3 rounded-xl border col-span-2 sm:col-span-2 ${
+                  NovemberPreview.isOver
+                    ? 'bg-rose-950/20 border-rose-800/40 text-rose-300'
+                    : 'bg-[#00ff7f]/10 border-[#00ff7f]/30 text-[#00ff7f]'
+                }`}
+              >
+                <span className="text-[10px] uppercase font-bold tracking-wider">
+                  {NovemberPreview.isOver ? '⚠️ Campo Ultrapassou' : '✅ Campo Disponível'}
+                </span>
+                <p className="text-base font-black mt-0.5">
+                  {NovemberPreview.isOver
+                    ? formatCurrency(NovemberPreview.ultrapassou)
+                    : formatCurrency(NovemberPreview.disponivel)}
+                </p>
+                <p className="text-[10px] opacity-80 mt-0.5">
+                  {NovemberPreview.isOver
+                    ? 'Gastos superaram salários em Novembro'
+                    : 'Saldo positivo livre para investimentos ou poupança'}
+                </p>
+              </div>
             </div>
           </div>
         </div>
       </div>
 
-      {/* Grid: 2 Columns (Configuration + Preview/Test) */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        {/* Left Column: Telegram Setup & Step-by-Step (7 cols) */}
-        <div className="lg:col-span-7 space-y-6">
-          {/* Quick Guide Card */}
-          <div className="bg-zinc-900/60 border border-zinc-800 rounded-2xl p-5 space-y-4">
-            <h3 className="text-sm font-bold text-white flex items-center gap-2">
-              <Smartphone className="w-4 h-4 text-[#00ff7f]" />
-              <span>Como conectar seu Telegram em 3 passos simples</span>
-            </h3>
-
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              <div className="bg-zinc-950/60 border border-zinc-800/60 p-3 rounded-xl space-y-1">
-                <span className="w-5 h-5 rounded-full bg-[#00ff7f]/10 text-[#00ff7f] border border-[#00ff7f]/30 flex items-center justify-center text-xs font-black">
-                  1
-                </span>
-                <p className="text-xs font-semibold text-zinc-200">Abra o @BotFather</p>
-                <p className="text-[11px] text-zinc-400 leading-relaxed">
-                  No Telegram, pesquise por{' '}
-                  <a
-                    href="https://t.me/BotFather"
-                    target="_blank"
-                    rel="noreferrer"
-                    className="text-[#00ff7f] underline hover:text-[#00ff7f]/80"
-                  >
-                    @BotFather
-                  </a>{' '}
-                  e clique em Começar.
-                </p>
-              </div>
-
-              <div className="bg-zinc-950/60 border border-zinc-800/60 p-3 rounded-xl space-y-1">
-                <span className="w-5 h-5 rounded-full bg-[#00ff7f]/10 text-[#00ff7f] border border-[#00ff7f]/30 flex items-center justify-center text-xs font-black">
-                  2
-                </span>
-                <p className="text-xs font-semibold text-zinc-200">Crie o Bot</p>
-                <p className="text-[11px] text-zinc-400 leading-relaxed">
-                  Envie <code className="text-[#00ff7f] bg-black/40 px-1 rounded">/newbot</code>,
-                  escolha um nome e copie o <b>Token HTTP</b> que ele gerar.
-                </p>
-              </div>
-
-              <div className="bg-zinc-950/60 border border-zinc-800/60 p-3 rounded-xl space-y-1">
-                <span className="w-5 h-5 rounded-full bg-[#00ff7f]/10 text-[#00ff7f] border border-[#00ff7f]/30 flex items-center justify-center text-xs font-black">
-                  3
-                </span>
-                <p className="text-xs font-semibold text-zinc-200">Inicie & Detecte</p>
-                <p className="text-[11px] text-zinc-400 leading-relaxed">
-                  Cole o Token abaixo, envie <i>"Oi"</i> para o seu bot e clique em <b>Detectar Chat ID</b>!
-                </p>
-              </div>
-            </div>
+      {/* HISTÓRICO DE INTERAÇÕES E LOGS DO SERVIDOR */}
+      <div className="bg-[#0e0e12] border border-zinc-800/80 rounded-2xl p-5 shadow-lg">
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-2">
+            <MessageSquare className="w-4 h-4 text-[#00ff7f]" />
+            <h3 className="text-sm font-bold text-white">Histórico de Atendimento e Mensagens Recentes</h3>
           </div>
+          <button
+            onClick={fetchLogs}
+            disabled={isLoadingLogs}
+            className="text-xs text-zinc-400 hover:text-white flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${isLoadingLogs ? 'animate-spin' : ''}`} />
+            <span>Atualizar Logs</span>
+          </button>
+        </div>
 
-          {/* Form Settings */}
-          <div className="bg-zinc-900/60 border border-zinc-800 rounded-2xl p-5 space-y-5">
-            <h3 className="text-sm font-bold text-white flex items-center gap-2">
-              <Bot className="w-4 h-4 text-[#00ff7f]" />
-              <span>Credenciais da API do Telegram</span>
-            </h3>
-
-            {/* Bot Token Input */}
-            <div className="space-y-1.5">
-              <div className="flex items-center justify-between">
-                <label className="text-xs font-semibold text-zinc-300">
-                  Token do Bot (API Token do @BotFather)
-                </label>
-                <button
-                  type="button"
-                  onClick={() => setShowToken(!showToken)}
-                  className="text-[11px] text-zinc-400 hover:text-white flex items-center gap-1 cursor-pointer"
-                >
-                  {showToken ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
-                  <span>{showToken ? 'Ocultar' : 'Mostrar'}</span>
-                </button>
-              </div>
-              <div className="relative">
-                <input
-                  type={showToken ? 'text' : 'password'}
-                  placeholder="Ex: 7123456789:AAHeR... (fornecido pelo BotFather)"
-                  value={botToken}
-                  onChange={(e) => setBotToken(e.target.value)}
-                  className="w-full bg-black/60 border border-zinc-800 focus:border-[#00ff7f] rounded-xl px-3.5 py-2.5 text-xs text-zinc-100 placeholder:text-zinc-600 focus:outline-none transition-colors font-mono"
-                />
-              </div>
-              <p className="text-[11px] text-zinc-500">
-                Seu token é salvo de forma segura na sua conta privada do Firestore.
-              </p>
-            </div>
-
-            {/* Chat ID Input & Automatic Detection Button */}
-            <div className="space-y-1.5">
-              <label className="text-xs font-semibold text-zinc-300">
-                Seu Chat ID no Telegram
-              </label>
-              <div className="flex flex-col sm:flex-row gap-2">
-                <input
-                  type="text"
-                  placeholder="Ex: 123456789 (seu ID pessoal)"
-                  value={chatId}
-                  onChange={(e) => setChatId(e.target.value)}
-                  className="flex-1 bg-black/60 border border-zinc-800 focus:border-[#00ff7f] rounded-xl px-3.5 py-2.5 text-xs text-zinc-100 placeholder:text-zinc-600 focus:outline-none transition-colors font-mono"
-                />
-                <button
-                  type="button"
-                  onClick={handleDetectChatId}
-                  disabled={isDetecting || !botToken.trim()}
-                  className={`flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer shrink-0 ${
-                    isDetecting || !botToken.trim()
-                      ? 'bg-zinc-800 text-zinc-500 cursor-not-allowed border border-zinc-700/50'
-                      : 'bg-zinc-800 hover:bg-zinc-700 text-white border border-zinc-700 hover:border-[#00ff7f]/40 active:scale-95'
-                  }`}
-                  title="Consulta o Telegram e preenche seu Chat ID automaticamente"
-                >
-                  <RefreshCw className={`w-3.5 h-3.5 ${isDetecting ? 'animate-spin text-[#00ff7f]' : ''}`} />
-                  <span>{isDetecting ? 'Detectando...' : 'Detectar Chat ID'}</span>
-                </button>
-              </div>
-
-              {/* Chat Detection Feedback */}
-              {detectError && (
-                <div className="p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs space-y-2 whitespace-pre-line leading-relaxed">
-                  <div className="flex items-start gap-2">
-                    <AlertCircle className="w-4 h-4 shrink-0 text-amber-400 mt-0.5" />
-                    <div>{detectError}</div>
-                  </div>
-
-                  {detectedBotUsername && needInteraction && (
-                    <div className="pt-1">
-                      <a
-                        href={`https://t.me/${detectedBotUsername}`}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-[#00ff7f] hover:bg-[#00ff7f]/90 text-black font-black rounded-lg text-xs transition-transform active:scale-95 shadow-md shadow-[#00ff7f]/20"
-                      >
-                        <ExternalLink className="w-3.5 h-3.5" />
-                        <span>1º Clique aqui: Iniciar @{detectedBotUsername} no Telegram</span>
-                      </a>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {detectSuccess && (
-                <div className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-xs flex items-center gap-2">
-                  <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-400" />
-                  <div>{detectSuccess}</div>
-                </div>
-              )}
-
-              {chatName && (
-                <div className="flex items-center gap-1.5 text-[11px] text-zinc-400">
-                  <span className="text-zinc-500">Destinatário identificado:</span>
-                  <span className="text-white font-semibold">{chatName}</span>
-                </div>
-              )}
-
-              {/* Dica do @userinfobot */}
-              <div className="p-3 bg-zinc-950/60 border border-zinc-800/80 rounded-xl space-y-1.5 text-xs">
-                <div className="flex items-center justify-between text-zinc-300 font-semibold text-[11px]">
-                  <span className="flex items-center gap-1.5 text-zinc-300">
-                    <Sparkles className="w-3.5 h-3.5 text-[#00ff7f]" />
-                    <span>Dica: Obtenha seu Chat ID em 3 segundos</span>
-                  </span>
-                  <a
-                    href="https://t.me/userinfobot"
-                    target="_blank"
-                    rel="noreferrer"
-                    className="text-[#00ff7f] hover:underline flex items-center gap-1 text-[11px] font-bold"
-                  >
-                    <span>@userinfobot</span>
-                    <ExternalLink className="w-3 h-3" />
-                  </a>
-                </div>
-                <p className="text-[11px] text-zinc-400 leading-relaxed">
-                  Se preferir, abra o robô oficial <b>@userinfobot</b> no Telegram e envie qualquer mensagem. Ele responderá na hora com o seu número de <b>Id</b> (ex: <code className="text-[#00ff7f] bg-black/40 px-1 py-0.5 rounded">615009994</code>). Basta colar esse número no campo <b>Chat ID</b> acima!
-                </p>
-              </div>
-            </div>
-
-            <div className="h-[1px] bg-zinc-800/80 my-2" />
-
-            {/* Schedule Section */}
-            <div className="space-y-4">
-              <h4 className="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-2">
-                <Clock className="w-3.5 h-3.5 text-[#00ff7f]" />
-                <span>Horário do Envio Diário</span>
-              </h4>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div className="space-y-1.5">
-                  <label className="text-xs font-semibold text-zinc-300">
-                    Horário de Disparo (24h)
-                  </label>
-                  <input
-                    type="time"
-                    value={scheduledTime}
-                    onChange={(e) => setScheduledTime(e.target.value)}
-                    className="w-full bg-black/60 border border-zinc-800 focus:border-[#00ff7f] rounded-xl px-3.5 py-2.5 text-xs text-zinc-100 focus:outline-none transition-colors font-mono cursor-pointer"
-                  />
-                  <p className="text-[11px] text-zinc-500">
-                    Fuso horário: Horário de Brasília / Fortaleza (UTC-3).
-                  </p>
-                </div>
-
-                <div className="space-y-1.5">
-                  <label className="text-xs font-semibold text-zinc-300">
-                    Envio Diário Automático
-                  </label>
-                  <div
-                    onClick={() => setEnabled(!enabled)}
-                    className={`flex items-center justify-between p-2.5 rounded-xl border cursor-pointer select-none transition-all ${
-                      enabled
-                        ? 'bg-emerald-950/30 border-emerald-500/40 text-emerald-300'
-                        : 'bg-black/40 border-zinc-800 text-zinc-400'
+        {serverLogs.length === 0 ? (
+          <div className="p-8 text-center bg-[#070709] rounded-xl border border-zinc-800/60">
+            <Bot className="w-8 h-8 text-zinc-600 mx-auto mb-2" />
+            <p className="text-xs text-zinc-400">Nenhuma interação registrada ainda.</p>
+            <p className="text-[11px] text-zinc-500 mt-1">
+              Assim que você enviar uma mensagem no Telegram ou testar no simulador, ela aparecerá aqui em tempo real.
+            </p>
+          </div>
+        ) : (
+          <div className="space-y-2 max-h-64 overflow-y-auto font-mono text-xs pr-1">
+            {serverLogs.map((log) => (
+              <div
+                key={log.id}
+                className="p-2.5 rounded-lg bg-[#070709] border border-zinc-800/70 flex items-start justify-between gap-3"
+              >
+                <div className="flex items-start gap-2.5">
+                  <span
+                    className={`text-[9px] font-bold px-1.5 py-0.5 rounded uppercase mt-0.5 ${
+                      log.type === 'in'
+                        ? 'bg-blue-950/60 text-blue-400 border border-blue-800/60'
+                        : log.type === 'out'
+                        ? 'bg-emerald-950/60 text-[#00ff7f] border border-[#00ff7f]/40'
+                        : log.type === 'error'
+                        ? 'bg-rose-950/60 text-rose-400 border border-rose-800/60'
+                        : 'bg-zinc-800 text-zinc-400 border border-zinc-700'
                     }`}
                   >
-                    <div className="flex items-center gap-2 text-xs font-semibold">
-                      <Bell className={`w-4 h-4 ${enabled ? 'text-emerald-400' : 'text-zinc-500'}`} />
-                      <span>{enabled ? 'Habilitado (1x ao dia)' : 'Desabilitado'}</span>
-                    </div>
-                    <div
-                      className={`w-9 h-5 rounded-full p-0.5 transition-colors ${
-                        enabled ? 'bg-[#00ff7f]' : 'bg-zinc-800'
-                      }`}
-                    >
-                      <div
-                        className={`w-4 h-4 rounded-full bg-black transition-transform ${
-                          enabled ? 'translate-x-4' : 'translate-x-0'
-                        }`}
-                      />
-                    </div>
+                    {log.type === 'in' ? 'RECEBIDA' : log.type === 'out' ? 'RESPOSTA' : log.type}
+                  </span>
+                  <div>
+                    <p className="text-zinc-200 line-clamp-2">{log.message}</p>
+                    {log.from && <p className="text-[10px] text-zinc-500 mt-0.5">Origem: {log.from}</p>}
                   </div>
-                  <p className="text-[11px] text-zinc-500">
-                    O servidor dispara automaticamente todo dia às {scheduledTime}.
-                  </p>
                 </div>
-              </div>
-            </div>
-
-            {/* Custom Template Accordion / Textarea */}
-            <div className="space-y-2 pt-2">
-              <div className="flex items-center justify-between">
-                <label className="text-xs font-semibold text-zinc-300 flex items-center gap-1.5">
-                  <span>Mensagem Personalizada (Opcional)</span>
-                </label>
-                {messageTemplate && (
-                  <button
-                    type="button"
-                    onClick={() => setMessageTemplate('')}
-                    className="text-[11px] text-zinc-400 hover:text-red-400 cursor-pointer"
-                  >
-                    Restaurar Padrão
-                  </button>
-                )}
-              </div>
-              <textarea
-                rows={3}
-                placeholder="Deixe em branco para usar o padrão: 'Você tem esse valor disponivel para gastar...'"
-                value={messageTemplate}
-                onChange={(e) => setMessageTemplate(e.target.value)}
-                className="w-full bg-black/60 border border-zinc-800 focus:border-[#00ff7f] rounded-xl p-3 text-xs text-zinc-100 placeholder:text-zinc-600 focus:outline-none transition-colors resize-none leading-relaxed font-sans"
-              />
-              <p className="text-[11px] text-zinc-500">
-                Variáveis disponíveis: <code className="text-[#00ff7f]">{'{valor}'}</code>,{' '}
-                <code className="text-[#00ff7f]">{'{mes}'}</code>,{' '}
-                <code className="text-[#00ff7f]">{'{ano}'}</code>,{' '}
-                <code className="text-[#00ff7f]">{'{salario}'}</code>,{' '}
-                <code className="text-[#00ff7f]">{'{gastos}'}</code>,{' '}
-                <code className="text-[#00ff7f]">{'{status}'}</code>.
-              </p>
-            </div>
-
-            {/* Save Button */}
-            <div className="pt-2 flex items-center gap-3">
-              <button
-                type="button"
-                onClick={handleSave}
-                disabled={isSaving}
-                className="flex items-center gap-2 bg-[#00ff7f] hover:bg-[#00ff7f]/90 text-black px-5 py-2.5 rounded-xl text-xs font-black shadow-lg shadow-[#00ff7f]/20 transition-all cursor-pointer active:scale-95 disabled:opacity-50"
-              >
-                {isSaving ? (
-                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                ) : (
-                  <Check className="w-3.5 h-3.5" />
-                )}
-                <span>{isSaving ? 'Salvando...' : 'Salvar Configurações'}</span>
-              </button>
-
-              {saveSuccess && (
-                <span className="text-xs font-semibold text-emerald-400 flex items-center gap-1.5 animate-fade-in">
-                  <CheckCircle2 className="w-4 h-4" />
-                  Configurações salvas e agendadas com sucesso!
+                <span className="text-[10px] text-zinc-500 shrink-0">
+                  {new Date(log.timestamp).toLocaleTimeString('pt-BR')}
                 </span>
-              )}
-            </div>
+              </div>
+            ))}
           </div>
-        </div>
-
-        {/* Right Column: Live Message Preview & Instant Test (5 cols) */}
-        <div className="lg:col-span-5 space-y-6">
-          {/* Telegram Visual Message Preview */}
-          <div className="bg-zinc-900/60 border border-zinc-800 rounded-2xl p-5 space-y-4">
-            <div className="flex items-center justify-between">
-              <h3 className="text-sm font-bold text-white flex items-center gap-2">
-                <Send className="w-4 h-4 text-[#00ff7f]" />
-                <span>Prévia do Aviso no Telegram</span>
-              </h3>
-              <span className="text-[11px] text-zinc-500 font-mono">
-                {scheduledTime} Diário
-              </span>
-            </div>
-
-            {/* Telegram Message Balloon Mockup */}
-            <div className="bg-[#182533] border border-[#2b3c4f] rounded-2xl p-4 shadow-xl text-zinc-100 space-y-3 font-sans relative">
-              <div className="flex items-center justify-between border-b border-[#243547] pb-2 text-[11px] text-sky-400 font-semibold">
-                <div className="flex items-center gap-1.5">
-                  <Bot className="w-3.5 h-3.5" />
-                  <span>Cabe no Bolso Bot</span>
-                </div>
-                <span className="text-zinc-500 text-[10px]">bot • oficial</span>
-              </div>
-
-              <div className="text-xs whitespace-pre-wrap leading-relaxed font-sans text-zinc-200">
-                {previewMessage}
-              </div>
-
-              <div className="flex items-center justify-end gap-1 text-[10px] text-zinc-400 pt-1">
-                <span>{scheduledTime}</span>
-                <Check className="w-3 h-3 text-sky-400" />
-              </div>
-            </div>
-
-            {/* Action: Test Send Button */}
-            <div className="space-y-3 pt-2">
-              <button
-                type="button"
-                onClick={handleSendTestMessage}
-                disabled={isSendingTest || !botToken.trim() || !chatId.trim()}
-                className={`w-full flex items-center justify-center gap-2 py-3 px-4 rounded-xl text-xs font-black transition-all cursor-pointer shadow-lg ${
-                  isSendingTest || !botToken.trim() || !chatId.trim()
-                    ? 'bg-zinc-800 text-zinc-500 cursor-not-allowed border border-zinc-700/50'
-                    : 'bg-sky-500 hover:bg-sky-400 text-white shadow-sky-500/20 active:scale-95'
-                }`}
-              >
-                {isSendingTest ? (
-                  <RefreshCw className="w-4 h-4 animate-spin text-white" />
-                ) : (
-                  <Send className="w-4 h-4" />
-                )}
-                <span>
-                  {isSendingTest ? 'Disparando Mensagem...' : '🚀 Testar Envio Imediato no Telegram'}
-                </span>
-              </button>
-
-              {/* Test Result Feedback */}
-              {testResult && (
-                <div
-                  className={`p-3 rounded-xl border text-xs flex items-start gap-2 ${
-                    testResult.success
-                      ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300'
-                      : 'bg-red-500/10 border-red-500/30 text-red-300'
-                  }`}
-                >
-                  {testResult.success ? (
-                    <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-400 mt-0.5" />
-                  ) : (
-                    <AlertCircle className="w-4 h-4 shrink-0 text-red-400 mt-0.5" />
-                  )}
-                  <div className="leading-relaxed">{testResult.message}</div>
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* Budget Items Breakdown Card: Salários & Gastos de Novembro */}
-          <div className="bg-zinc-900/60 border border-zinc-800 rounded-2xl p-5 space-y-3">
-            <div className="flex items-center justify-between">
-              <h4 className="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-1.5">
-                <CalendarCheck2 className="w-3.5 h-3.5 text-[#00ff7f]" />
-                <span>Movimentações de {summary.monthName}</span>
-              </h4>
-              {onNavigateToBudget && (
-                <button
-                  onClick={onNavigateToBudget}
-                  className="text-[11px] font-semibold text-[#00ff7f] hover:underline flex items-center gap-1 cursor-pointer"
-                >
-                  <span>Abrir Orçamento</span>
-                  <ChevronRight className="w-3 h-3" />
-                </button>
-              )}
-            </div>
-
-            <div className="grid grid-cols-2 gap-2 text-xs">
-              <div className="bg-black/40 border border-emerald-500/20 p-2.5 rounded-xl">
-                <span className="text-[10px] uppercase font-bold text-emerald-400 block">
-                  Salários Previstos
-                </span>
-                <span className="text-sm font-extrabold text-[#00ff7f] block mt-0.5">
-                  {formatCurrency(summary.totalSalario)}
-                </span>
-                <span className="text-[10px] text-zinc-500">
-                  {summary.salariesCount} lançamento(s)
-                </span>
-              </div>
-
-              <div className="bg-black/40 border border-rose-500/20 p-2.5 rounded-xl">
-                <span className="text-[10px] uppercase font-bold text-rose-400 block">
-                  Gastos Previstos
-                </span>
-                <span className="text-sm font-extrabold text-rose-400 block mt-0.5">
-                  {formatCurrency(summary.totalGastos)}
-                </span>
-                <span className="text-[10px] text-zinc-500">
-                  {summary.expensesCount} despesa(s)
-                </span>
-              </div>
-            </div>
-
-            {/* List Preview of Month's items */}
-            {summary.salariesList.length === 0 && summary.expensesList.length === 0 ? (
-              <p className="text-xs text-zinc-500 py-2">
-                Nenhuma movimentação cadastrada para {summary.monthName} ainda. Acesse o menu "Orçamento Mensal" para lançar salários e gastos.
-              </p>
-            ) : (
-              <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
-                {summary.salariesList.map((tx) => (
-                  <div
-                    key={tx.id}
-                    className="bg-black/50 border border-zinc-800/80 px-2.5 py-1.5 rounded-lg flex items-center justify-between text-xs"
-                  >
-                    <div className="flex items-center gap-2 min-w-0">
-                      <span className="w-2 h-2 rounded-full bg-[#00ff7f] shrink-0" />
-                      <span className="text-zinc-200 truncate">{tx.name}</span>
-                    </div>
-                    <span className="font-bold text-[#00ff7f] shrink-0">
-                      +{formatCurrency(tx.amount)}
-                    </span>
-                  </div>
-                ))}
-
-                {summary.expensesList.map((tx) => (
-                  <div
-                    key={tx.id}
-                    className="bg-black/50 border border-zinc-800/80 px-2.5 py-1.5 rounded-lg flex items-center justify-between text-xs"
-                  >
-                    <div className="flex items-center gap-2 min-w-0">
-                      <span className="w-2 h-2 rounded-full bg-rose-500 shrink-0" />
-                      <span className="text-zinc-200 truncate">{tx.name}</span>
-                    </div>
-                    <span className="font-bold text-rose-400 shrink-0">
-                      -{formatCurrency(tx.amount)}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          {/* Last Sent Log & Status */}
-          {config.lastSentDate && (
-            <div className="p-4 rounded-xl bg-zinc-950 border border-zinc-800 text-xs text-zinc-400 space-y-1">
-              <span className="font-semibold text-zinc-300 block">Histórico de Disparos:</span>
-              <div className="flex items-center justify-between text-[11px]">
-                <span>Último envio realizado:</span>
-                <span className="text-white font-mono">
-                  {config.lastSentDate}{' '}
-                  {config.lastSentTimestamp
-                    ? new Date(config.lastSentTimestamp).toLocaleTimeString('pt-BR')
-                    : ''}
-                </span>
-              </div>
-              <div className="flex items-center justify-between text-[11px]">
-                <span>Status da entrega:</span>
-                <span
-                  className={`font-semibold ${
-                    config.lastSentStatus === 'success' ? 'text-emerald-400' : 'text-red-400'
-                  }`}
-                >
-                  {config.lastSentStatus === 'success' ? 'Entregue no Telegram' : 'Erro no envio'}
-                </span>
-              </div>
-            </div>
-          )}
-        </div>
+        )}
       </div>
     </div>
   );

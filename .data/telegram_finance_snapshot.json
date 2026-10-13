@@ -1,0 +1,44 @@
+{
+  "transactions": [
+    {
+      "id": "tx-1",
+      "name": "Salário Mensal",
+      "amount": 5500,
+      "type": "salario",
+      "tag": "Salário",
+      "date": "2026-11-05",
+      "status": "Recebido"
+    },
+    {
+      "id": "tx-2",
+      "name": "Aluguel",
+      "amount": 1800,
+      "type": "gasto",
+      "tag": "Moradia",
+      "date": "2026-11-10",
+      "status": "Pago"
+    },
+    {
+      "id": "tx-3",
+      "name": "Supermercado",
+      "amount": 1200,
+      "type": "gasto",
+      "tag": "Alimentação",
+      "date": "2026-11-15",
+      "status": "Não pago"
+    }
+  ],
+  "cards": [
+    {
+      "id": "card-1",
+      "name": "Nubank",
+      "currentInvoice": 650,
+      "limit": 4000,
+      "dueDate": "20",
+      "dueDay": 20,
+      "closingDay": 13,
+      "tag": "Cartão de crédito"
+    }
+  ],
+  "cardPurchases": []
+}

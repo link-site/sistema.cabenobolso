@@ -1,0 +1,58 @@
+[
+  {
+    "id": "1791900155354_p4dz",
+    "timestamp": "2026-10-13T14:02:35.354Z",
+    "type": "out",
+    "message": "💸 *Gastos & Despesas — Novembro/2026*\n━━━━━━━━━━━━━━━━━━━━━━━━━━\n📋 *Contas Fixas & Variáveis:*\n  • Aluguel: R$ 1.800,00 [Pago]\n  • Supermercado: R$ 1.200,00 [Não pago]\n\n💳 *Faturas dos Cartões:* \n  • Nubank: R$ 650,00\n━━━━━━━━━━━━━━━━━━━━━━━━━━\n🧾 *Total de Gastos:* R$ 3.650,00\n💰 *Total de Salários:* R$ 5.500,00\n✅ *Disponível no mês:* R$ 1.850,00",
+    "from": "Bot"
+  },
+  {
+    "id": "1791900155353_0rqo",
+    "timestamp": "2026-10-13T14:02:35.353Z",
+    "type": "in",
+    "message": "[Simulador] quais os gastos e despesas de novembro?",
+    "from": "Navegador"
+  },
+  {
+    "id": "1791900150103_76nz",
+    "timestamp": "2026-10-13T14:02:30.103Z",
+    "type": "out",
+    "message": "💳 *Cartão: Nubank*\n━━━━━━━━━━━━━━━━━━━━━━━━━━\n📅 *Mês de Referência:* Outubro/2026\n🧾 *Valor da Fatura:* R$ 650,00\n🎯 *Limite Total:* R$ 4.000,00\n🟢 *Limite Disponível estimado:* R$ 3.350,00\n📆 *Vencimento:* Dia 20\n✂️ *Fechamento:* Dia 13\n",
+    "from": "Bot"
+  },
+  {
+    "id": "1791900150102_fmf4",
+    "timestamp": "2026-10-13T14:02:30.102Z",
+    "type": "in",
+    "message": "[Simulador] qual a fatura do cartão Nubank?",
+    "from": "Navegador"
+  },
+  {
+    "id": "1791900144852_hw1d",
+    "timestamp": "2026-10-13T14:02:24.852Z",
+    "type": "out",
+    "message": "📊 *Orçamento — Novembro/2026*\n━━━━━━━━━━━━━━━━━━━━━━━━━━\n💰 *Total de Salários:* R$ 5.500,00\n💸 *Total de Gastos:* R$ 3.650,00\n\n💳 *Faturas de Cartões no mês:*\n  • Nubank: R$ 650,00 (Não Pago)\n━━━━━━━━━━━━━━━━━━━━━━━━━━\n✅ *VALOR DISPONÍVEL:* R$ 1.850,00\n🎉 _Parabéns! Este é o valor livre disponível para investir ou poupar._",
+    "from": "Bot"
+  },
+  {
+    "id": "1791900144852_zkqd",
+    "timestamp": "2026-10-13T14:02:24.852Z",
+    "type": "in",
+    "message": "[Simulador] qual valor disponivel no mês de novembro?",
+    "from": "Navegador"
+  },
+  {
+    "id": "1791900135246_04qw",
+    "timestamp": "2026-10-13T14:02:15.246Z",
+    "type": "out",
+    "message": "📊 *Orçamento — Novembro/2026*\n━━━━━━━━━━━━━━━━━━━━━━━━━━\n💰 *Total de Salários:* R$ 0,00\n💸 *Total de Gastos:* R$ 0,00\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━\n✅ *VALOR DISPONÍVEL:* R$ 0,00\n🎉 _Parabéns! Este é o valor livre disponível para investir ou poupar._",
+    "from": "Bot"
+  },
+  {
+    "id": "1791900135246_c4g7",
+    "timestamp": "2026-10-13T14:02:15.246Z",
+    "type": "in",
+    "message": "[Simulador] qual valor disponivel no mês de novembro?",
+    "from": "Navegador"
+  }
+]

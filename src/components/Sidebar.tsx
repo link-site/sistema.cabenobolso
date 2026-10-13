@@ -14,8 +14,8 @@ import {
   X,
   ChevronRight,
   Sparkles,
-  Send,
   TrendingUp,
+  Bot,
 } from 'lucide-react';
 import { MenuTab } from '../types';
 import { useAuth } from '../context/AuthContext';
@@ -61,13 +61,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
       icon: CreditCard,
     },
     {
-      id: 'telegram' as MenuTab,
-      label: 'Bot Telegram',
-      desc: 'Avisos da Fatura Diários',
-      icon: Send,
-      badge: 'NOVO',
-    },
-    {
       id: 'relatorios' as MenuTab,
       label: 'Relatórios',
       desc: 'Gráficos & Análises',
@@ -85,6 +78,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
       desc: 'Simulação & 3 Níveis',
       icon: TrendingUp,
       badge: 'NOVO',
+    },
+    {
+      id: 'telegram' as MenuTab,
+      label: 'Bot Telegram',
+      desc: 'Consultas & Orçamento',
+      icon: Bot,
+      badge: 'ATIVO',
     },
   ];
 
