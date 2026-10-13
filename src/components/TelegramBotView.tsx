@@ -59,6 +59,7 @@ export const TelegramBotView: React.FC<TelegramBotViewProps> = ({
   // Status & feedback
   const [isSaving, setIsSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
+  const [hasSavedOnce, setHasSavedOnce] = useState(() => Boolean(telegramConfig.botToken && telegramConfig.botToken.trim()));
   const [isTestingToken, setIsTestingToken] = useState(false);
   const [tokenTestResult, setTokenTestResult] = useState<{ success: boolean; message: string; botName?: string } | null>(null);
   const [isSendingTest, setIsSendingTest] = useState(false);
@@ -68,6 +69,15 @@ export const TelegramBotView: React.FC<TelegramBotViewProps> = ({
   const [isSyncingData, setIsSyncingData] = useState(false);
   const [syncFeedback, setSyncFeedback] = useState<string | null>(null);
   const [copiedText, setCopiedText] = useState<string | null>(null);
+
+  // Status de configuração do bot
+  const isBotConfigured = Boolean((telegramConfig.botToken && telegramConfig.botToken.trim()) || hasSavedOnce);
+
+  // Detecta se há alterações não salvas nos campos
+  const isDirty =
+    tokenInput.trim() !== (telegramConfig.botToken || '').trim() ||
+    chatIdInput.trim() !== (telegramConfig.chatId || '').trim() ||
+    isEnabled !== (telegramConfig.enabled || false);
 
   // Interactive In-App Simulator
   const [simQuery, setSimQuery] = useState('');
@@ -190,6 +200,10 @@ export const TelegramBotView: React.FC<TelegramBotViewProps> = ({
   // Salva configurações
   const handleSaveConfig = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
+    if (!tokenInput.trim()) {
+      setTokenTestResult({ success: false, message: 'Digite o token do bot antes de salvar.' });
+      return;
+    }
     setIsSaving(true);
     setSaveSuccess(false);
 
@@ -206,11 +220,13 @@ export const TelegramBotView: React.FC<TelegramBotViewProps> = ({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ transactions, cards, cardPurchases }),
       });
+      setHasSavedOnce(true);
       setSaveSuccess(true);
-      setTimeout(() => setSaveSuccess(false), 4000);
+      setTimeout(() => setSaveSuccess(false), 5000);
       fetchLogs();
     } catch (err) {
       console.error(err);
+      setSaveSuccess(false);
     } finally {
       setIsSaving(false);
     }
@@ -692,25 +708,46 @@ export const TelegramBotView: React.FC<TelegramBotViewProps> = ({
                 <button
                   type="submit"
                   disabled={isSaving}
-                  className="w-full py-2.5 rounded-xl bg-gradient-to-r from-[#00ff7f] to-emerald-400 hover:from-[#00ff7f]/90 hover:to-emerald-300 text-black font-black text-xs uppercase tracking-wider flex items-center justify-center gap-2 transition-all cursor-pointer shadow-lg shadow-[#00ff7f]/20 disabled:opacity-50"
+                  className={`w-full py-2.5 rounded-xl font-black text-xs uppercase tracking-wider flex items-center justify-center gap-2 transition-all cursor-pointer shadow-lg disabled:opacity-50 ${
+                    isBotConfigured && !isDirty
+                      ? 'bg-gradient-to-r from-[#00ff7f] to-emerald-400 hover:from-[#00ff7f]/90 hover:to-emerald-300 text-black shadow-[#00ff7f]/25 ring-1 ring-[#00ff7f]/50'
+                      : 'bg-gradient-to-r from-[#00ff7f] to-emerald-400 hover:from-[#00ff7f]/90 hover:to-emerald-300 text-black shadow-[#00ff7f]/20'
+                  }`}
+                  title={
+                    isBotConfigured && !isDirty
+                      ? 'Seu bot já está configurado. Clique para sincronizar novamente.'
+                      : 'Salvar as configurações do bot'
+                  }
                 >
                   {isSaving ? (
                     <>
                       <RefreshCw className="w-4 h-4 animate-spin" />
                       <span>Salvando...</span>
                     </>
-                  ) : saveSuccess ? (
+                  ) : isBotConfigured && !isDirty ? (
                     <>
-                      <Check className="w-4 h-4" />
-                      <span>Configuração Salva com Sucesso!</span>
+                      <CheckCircle2 className="w-4 h-4 text-black" />
+                      <span>Seu bot já está configurado</span>
+                    </>
+                  ) : isBotConfigured && isDirty ? (
+                    <>
+                      <CheckCircle2 className="w-4 h-4 text-black" />
+                      <span>Salvar Alterações do Bot</span>
                     </>
                   ) : (
                     <>
-                      <CheckCircle2 className="w-4 h-4" />
+                      <CheckCircle2 className="w-4 h-4 text-black" />
                       <span>Salvar Configuração do Bot</span>
                     </>
                   )}
                 </button>
+
+                {saveSuccess && (
+                  <div className="p-2.5 rounded-xl bg-emerald-950/40 border border-[#00ff7f]/40 text-xs text-[#00ff7f] flex items-center gap-2">
+                    <CheckCircle2 className="w-4 h-4 shrink-0" />
+                    <span>Configurações salvas! Seu bot já está configurado.</span>
+                  </div>
+                )}
 
                 <button
                   type="button"
