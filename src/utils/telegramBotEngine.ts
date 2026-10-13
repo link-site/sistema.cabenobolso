@@ -227,15 +227,15 @@ export function processTelegramQuery(
 
     const text =
       `🤖 *Olá! Eu sou o assistente do Sistema Cabe no Bolso.*\n\n` +
-      `Tenho *acesso total e em tempo real* ao seu **Menu Orçamento** e **Menu Cartões de Crédito**!\n\n` +
+      `Tenho *acesso total e em tempo real* ao seu *Menu Orçamento* e *Menu Cartões de Crédito*!\n\n` +
       `💡 *Você pode me perguntar livremente coisas como:*\n` +
-      `• _"Qual valor disponível no mês de novembro?"_\n` +
-      `• _"Quanto sobrou no mês de ${curMonthName.toLowerCase()}?"_\n` +
-      `• _"Quais os gastos de ${nextMonthName.toLowerCase()}?"_\n` +
-      `• _"Qual o valor da fatura do cartão?"_\n` +
-      `• _"Quais são os meus cartões de crédito?"_\n` +
-      `• _"Quanto tenho de salário em ${curMonthName.toLowerCase()}?"_\n` +
-      `• _"Resumo do orçamento"_\n\n` +
+      `• "Qual valor disponível no mês de novembro?"\n` +
+      `• "Quanto sobrou no mês de ${curMonthName.toLowerCase()}?"\n` +
+      `• "Quais os gastos de ${nextMonthName.toLowerCase()}?"\n` +
+      `• "Qual o valor da fatura do cartão?"\n` +
+      `• "Quais são os meus cartões de crédito?"\n` +
+      `• "Quanto tenho de salário em ${curMonthName.toLowerCase()}?"\n` +
+      `• "Resumo do orçamento"\n\n` +
       `📌 *Ou use os comandos rápidos:*\n` +
       `• /disponivel - Saldo livre deste mês\n` +
       `• /orcamento - Resumo do orçamento completo\n` +
@@ -482,9 +482,9 @@ export function processTelegramQuery(
     `• Gastos: ${formatCurrency(curBudget.totalGastos)}\n` +
     `• *Disponível:* ${formatCurrency(curBudget.valorDisponivel)}\n\n` +
     `💡 *Exemplos de como me perguntar:*\n` +
-    `• _"Qual valor disponível no mês de novembro?"_\n` +
-    `• _"Qual a fatura do cartão Nubank?"_\n` +
-    `• _"Quanto gastei em outubro?"_\n` +
+    `• "Qual valor disponível no mês de novembro?"\n` +
+    `• "Qual a fatura do cartão Nubank?"\n` +
+    `• "Quanto gastei em outubro?"\n` +
     `• Envie /ajuda para ver todos os comandos.`;
 
   return { text: fallbackText, matchedIntent: 'fallback' };

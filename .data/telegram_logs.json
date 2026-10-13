@@ -1,5 +1,19 @@
 [
   {
+    "id": "1791927570134_8f53",
+    "timestamp": "2026-10-13T21:39:30.134Z",
+    "type": "out",
+    "message": "📊 *Orçamento — Novembro/2026*\n━━━━━━━━━━━━━━━━━━━━━━━━━━\n💰 *Total de Salários:* R$ 3.558,10\n💸 *Total de Gastos:* R$ 2.618,39\n\n💳 *Faturas de Cartões no mês:*\n  • Atacadão: R$ 514,44 (Não Pago)\n━━━━━━━━━━━━━━━━━━━━━━━━━━\n✅ *VALOR DISPONÍVEL:* R$ 939,71\n🎉 _Parabéns! Este é o valor livre disponível para investir ou poupar._",
+    "from": "Bot"
+  },
+  {
+    "id": "1791927570133_kmmt",
+    "timestamp": "2026-10-13T21:39:30.133Z",
+    "type": "in",
+    "message": "[Simulador] qual valor disponivel no mês de novembro?",
+    "from": "Navegador"
+  },
+  {
     "id": "1791900155354_p4dz",
     "timestamp": "2026-10-13T14:02:35.354Z",
     "type": "out",

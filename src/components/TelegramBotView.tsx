@@ -63,6 +63,8 @@ export const TelegramBotView: React.FC<TelegramBotViewProps> = ({
   const [tokenTestResult, setTokenTestResult] = useState<{ success: boolean; message: string; botName?: string } | null>(null);
   const [isSendingTest, setIsSendingTest] = useState(false);
   const [testSendResult, setTestSendResult] = useState<{ success: boolean; message: string } | null>(null);
+  const [isDetectingChatId, setIsDetectingChatId] = useState(false);
+  const [detectResult, setDetectResult] = useState<{ success: boolean; message: string; name?: string } | null>(null);
   const [isSyncingData, setIsSyncingData] = useState(false);
   const [syncFeedback, setSyncFeedback] = useState<string | null>(null);
   const [copiedText, setCopiedText] = useState<string | null>(null);
@@ -214,12 +216,80 @@ export const TelegramBotView: React.FC<TelegramBotViewProps> = ({
     }
   };
 
+  // Detecta automaticamente o Chat ID inspecionando getUpdates do bot no Telegram
+  const handleDetectChatId = async () => {
+    const rawToken = tokenInput.trim();
+    if (!rawToken) {
+      setDetectResult({
+        success: false,
+        message: 'Digite ou cole o Token do Bot acima primeiro.',
+      });
+      return;
+    }
+
+    setIsDetectingChatId(true);
+    setDetectResult(null);
+
+    try {
+      const res = await fetch('/api/telegram/detect-chat-id', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ botToken: rawToken }),
+      });
+      const data = await res.json();
+
+      if (data.success && data.chatId) {
+        setChatIdInput(data.chatId);
+        setDetectResult({
+          success: true,
+          message: `Chat ID detectado: ${data.chatId} (${data.name})! Preenchido no formulário.`,
+          name: data.name,
+        });
+      } else {
+        setDetectResult({
+          success: false,
+          message:
+            data.error ||
+            'Nenhuma mensagem recebida ainda. Abra o Telegram, pesquise pelo seu bot, clique em "Iniciar" ou envie /start e tente novamente.',
+        });
+      }
+    } catch (err: any) {
+      setDetectResult({
+        success: false,
+        message: err.message || 'Falha ao buscar atualizações no Telegram.',
+      });
+    } finally {
+      setIsDetectingChatId(false);
+    }
+  };
+
   // Envia mensagem de teste diretamente para o Telegram
   const handleSendTestMessage = async () => {
-    if (!tokenInput.trim() || !chatIdInput.trim()) {
+    const rawToken = tokenInput.trim();
+    const rawChat = chatIdInput.trim().replace(/^@/, '');
+
+    if (!rawToken) {
       setTestSendResult({
         success: false,
-        message: 'Preencha o Token do Bot e o Chat ID para realizar o teste.',
+        message: 'Preencha o Token do Bot para realizar o teste.',
+      });
+      return;
+    }
+
+    if (!rawChat) {
+      setTestSendResult({
+        success: false,
+        message: 'Preencha o seu Chat ID numérico (ex: 123456789) para receber a mensagem no Telegram.',
+      });
+      return;
+    }
+
+    // Verifica se digitou username com letras em vez de ID numérico
+    if (isNaN(Number(rawChat))) {
+      setTestSendResult({
+        success: false,
+        message:
+          'O Chat ID deve ser um número (ex: 123456789), não o seu @username. Abra o Telegram, envie /start para o seu bot e clique no botão "Detectar meu Chat ID" abaixo para preencher automaticamente!',
       });
       return;
     }
@@ -228,7 +298,7 @@ export const TelegramBotView: React.FC<TelegramBotViewProps> = ({
     setTestSendResult(null);
 
     try {
-      // Garante que os dados mais recentes estejam sincronizados
+      // Garante que os dados mais recentes estejam sincronizados com o servidor
       await fetch('/api/telegram/sync-data', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -239,8 +309,8 @@ export const TelegramBotView: React.FC<TelegramBotViewProps> = ({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          botToken: tokenInput.trim(),
-          chatId: chatIdInput.trim(),
+          botToken: rawToken,
+          chatId: rawChat,
         }),
       });
       const data = await res.json();
@@ -248,7 +318,7 @@ export const TelegramBotView: React.FC<TelegramBotViewProps> = ({
       if (data.success) {
         setTestSendResult({
           success: true,
-          message: 'Mensagem enviada com sucesso! Verifique seu aplicativo do Telegram.',
+          message: data.message || 'Mensagem enviada com sucesso! Verifique seu aplicativo do Telegram.',
         });
         fetchLogs();
       } else {
@@ -542,9 +612,21 @@ export const TelegramBotView: React.FC<TelegramBotViewProps> = ({
 
               {/* CHAT ID */}
               <div>
-                <label className="block text-xs font-semibold text-zinc-300 mb-1.5">
-                  Seu Chat ID do Telegram <span className="text-zinc-500">(para notificações e testes)</span>
-                </label>
+                <div className="flex items-center justify-between mb-1.5 flex-wrap gap-2">
+                  <label className="text-xs font-semibold text-zinc-300">
+                    Seu Chat ID do Telegram <span className="text-[#00ff7f]">*</span>
+                  </label>
+                  <button
+                    type="button"
+                    onClick={handleDetectChatId}
+                    disabled={isDetectingChatId || !tokenInput.trim()}
+                    className="text-[11px] font-semibold text-sky-400 hover:text-sky-300 hover:underline flex items-center gap-1 cursor-pointer disabled:opacity-40"
+                    title="Detecta seu Chat ID lendo as mensagens recebidas pelo seu bot"
+                  >
+                    <RefreshCw className={`w-3 h-3 ${isDetectingChatId ? 'animate-spin' : ''}`} />
+                    <span>{isDetectingChatId ? 'Detectando ID...' : 'Detectar meu Chat ID'}</span>
+                  </button>
+                </div>
                 <input
                   type="text"
                   value={chatIdInput}
@@ -552,10 +634,34 @@ export const TelegramBotView: React.FC<TelegramBotViewProps> = ({
                   placeholder="Ex: 123456789"
                   className="w-full bg-[#070709] border border-zinc-800 focus:border-[#00ff7f] rounded-xl px-3.5 py-2.5 text-xs text-white placeholder-zinc-600 focus:outline-none transition-colors font-mono"
                 />
-                <p className="text-[11px] text-zinc-500 mt-1">
-                  Para descobrir seu ID, envie qualquer mensagem para o bot{' '}
-                  <span className="text-sky-400 font-mono">@userinfobot</span> no Telegram.
-                </p>
+
+                <div className="mt-1.5 space-y-1">
+                  <p className="text-[11px] text-zinc-400">
+                    💡 O Telegram exige o <strong className="text-zinc-200">ID numérico</strong> para bots enviarem mensagens.
+                  </p>
+                  <p className="text-[11px] text-zinc-500">
+                    Para preencher sozinho: abra o seu bot no Telegram, clique em <strong className="text-[#00ff7f]">Iniciar</strong> (ou envie <span className="text-zinc-300 font-mono">/start</span>) e clique no botão acima <span className="text-sky-400">"Detectar meu Chat ID"</span>.
+                  </p>
+                </div>
+
+                {detectResult && (
+                  <div
+                    className={`mt-2 p-2.5 rounded-lg text-xs flex items-start gap-2 ${
+                      detectResult.success
+                        ? 'bg-emerald-950/40 border border-[#00ff7f]/40 text-[#00ff7f]'
+                        : 'bg-amber-950/40 border border-amber-800/40 text-amber-300'
+                    }`}
+                  >
+                    {detectResult.success ? (
+                      <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5" />
+                    ) : (
+                      <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+                    )}
+                    <div>
+                      <p className="font-semibold">{detectResult.message}</p>
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* TOGGLE ATENDIMENTO */}
@@ -618,18 +724,30 @@ export const TelegramBotView: React.FC<TelegramBotViewProps> = ({
 
                 {testSendResult && (
                   <div
-                    className={`p-2.5 rounded-lg text-xs flex items-center gap-2 ${
+                    className={`p-3 rounded-xl text-xs space-y-2 ${
                       testSendResult.success
-                        ? 'bg-emerald-950/40 border border-[#00ff7f]/40 text-[#00ff7f]'
-                        : 'bg-rose-950/40 border border-rose-800/40 text-rose-300'
+                        ? 'bg-emerald-950/50 border border-[#00ff7f]/50 text-[#00ff7f]'
+                        : 'bg-rose-950/50 border border-rose-800/50 text-rose-200'
                     }`}
                   >
-                    {testSendResult.success ? (
-                      <CheckCircle2 className="w-4 h-4 shrink-0" />
-                    ) : (
-                      <AlertTriangle className="w-4 h-4 shrink-0" />
+                    <div className="flex items-start gap-2">
+                      {testSendResult.success ? (
+                        <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5 text-[#00ff7f]" />
+                      ) : (
+                        <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5 text-rose-400" />
+                      )}
+                      <div className="flex-1">
+                        <p className="font-semibold leading-relaxed">{testSendResult.message}</p>
+                      </div>
+                    </div>
+                    {!testSendResult.success && testSendResult.message.includes('/start') && (
+                      <div className="pt-2 border-t border-rose-800/40 text-[11px] text-zinc-300 space-y-1">
+                        <p className="font-bold text-white">Como resolver agora:</p>
+                        <p>1. Abra o aplicativo do Telegram e busque pelo seu bot.</p>
+                        <p>2. Clique em <strong className="text-[#00ff7f]">Iniciar</strong> ou envie <code className="bg-black/60 px-1 py-0.5 rounded text-white font-mono">/start</code>.</p>
+                        <p>3. Clique no botão <button type="button" onClick={handleDetectChatId} className="text-sky-300 underline font-semibold">Detectar meu Chat ID</button> ou clique em enviar o teste novamente.</p>
+                      </div>
                     )}
-                    <p>{testSendResult.message}</p>
                   </div>
                 )}
               </div>
