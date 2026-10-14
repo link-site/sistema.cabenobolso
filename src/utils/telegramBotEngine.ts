@@ -209,17 +209,42 @@ export function processTelegramQuery(
   const norm = normalizeText(query);
   const { transactions = [], cards = [], cardPurchases = [] } = data;
 
-  // 1. Comando START ou AJUDA / HELP
-  if (
-    norm === '/start' ||
-    norm === '/help' ||
-    norm === '/ajuda' ||
+  // 1. Comando START ou AJUDA / HELP ou SAUDAÇÕES (oi, olá, bom dia, etc.)
+  const isGreeting =
     norm === 'oi' ||
+    norm.startsWith('oi ') ||
+    norm.startsWith('oi!') ||
+    norm.startsWith('oi,') ||
     norm === 'ola' ||
+    norm.startsWith('ola ') ||
+    norm.startsWith('ola!') ||
+    norm.startsWith('ola,') ||
     norm === 'olá' ||
+    norm.startsWith('olá ') ||
+    norm.startsWith('olá!') ||
+    norm.startsWith('olá,') ||
+    norm.startsWith('/start') ||
+    norm.startsWith('/help') ||
+    norm.startsWith('/ajuda') ||
+    norm.startsWith('/menu') ||
+    norm.startsWith('/comandos') ||
+    norm === 'bom dia' ||
+    norm.startsWith('bom dia') ||
+    norm === 'boa tarde' ||
+    norm.startsWith('boa tarde') ||
+    norm === 'boa noite' ||
+    norm.startsWith('boa noite') ||
+    norm === 'opa' ||
+    norm.startsWith('opa ') ||
+    norm === 'e ai' ||
+    norm === 'e aí' ||
+    norm.includes('como funciona') ||
+    norm.includes('o que você faz') ||
+    norm.includes('o que voce faz') ||
     norm === 'menu' ||
-    norm === 'comandos'
-  ) {
+    norm === 'comandos';
+
+  if (isGreeting) {
     const current = new Date();
     const curMonthName = MONTH_NAMES[current.getMonth()];
     const nextMonthIndex = (current.getMonth() + 1) % 12;

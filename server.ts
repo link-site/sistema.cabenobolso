@@ -757,13 +757,59 @@ Retorne ESTRITAMENTE em formato JSON com o schema:
   };
 
   // Helper para envio de mensagem ao Telegram com fallback e diagnóstico detalhado
+  // Helper para sanitizar tokens do bot
+  function sanitizeBotToken(raw: any): string {
+    if (!raw || typeof raw !== 'string') return '';
+    let t = raw.trim();
+    // Remove aspas envolventes se o usuário colou com aspas
+    t = t.replace(/^["'`]|["'`]$/g, '').trim();
+    // Remove prefixos comuns como "token:", "bot token:", "Token = "
+    t = t.replace(/^(?:bot\s*token|token)\s*[:=]\s*/i, '').trim();
+    // Remove prefixo "bot" caso o usuário tenha colado "bot7123456789:AA..."
+    t = t.replace(/^bot(?=\d+:)/i, '').trim();
+    // Remove caracteres invisíveis ou espaços de formatação copiados acidentalmente
+    t = t.replace(/[\u200B-\u200D\uFEFF\u00A0\s]/g, '').trim();
+    return t;
+  }
+
+  // Gerenciador do loop de Long-Polling para receber mensagens 24/7
+  interface DetectedTelegramChat {
+    chatId: string;
+    name: string;
+    username?: string;
+    lastMessage: string;
+    timestamp: string;
+  }
+
+  let latestDetectedChat: DetectedTelegramChat | null = null;
+
+  // Botões de ações rápidas sugeridas no Telegram
+  const getTelegramReplyKeyboard = () => {
+    return {
+      inline_keyboard: [
+        [
+          { text: '💰 Disponível Novembro', callback_data: 'qual valor disponivel no mês de novembro?' },
+          { text: '📊 Saldo Mês Atual', callback_data: 'qual o valor disponivel neste mês?' },
+        ],
+        [
+          { text: '💳 Faturas dos Cartões', callback_data: 'quais meus cartões de crédito e faturas?' },
+          { text: '💸 Gastos do Mês', callback_data: 'quais os gastos e despesas deste mês?' },
+        ],
+        [
+          { text: '❓ Ajuda & Comandos', callback_data: '/ajuda' },
+        ],
+      ],
+    };
+  };
+
+  // Helper para envio de mensagem ao Telegram com fallback e diagnóstico detalhado
   const sendTelegramMessage = async (
     token: string,
     chatId: string | number,
     text: string,
     replyMarkup?: any
   ): Promise<{ ok: boolean; error?: string; telegramDescription?: string }> => {
-    const cleanToken = String(token || '').trim().replace(/^bot/i, '');
+    const cleanToken = sanitizeBotToken(token);
     const cleanChatId = String(chatId || '').trim();
 
     if (!cleanToken) {
@@ -792,7 +838,7 @@ Retorne ESTRITAMENTE em formato JSON com o schema:
 
       let resJson: any = await response.json();
 
-      // Se falhar enquanto parse_mode estava ativo (ex: erro de formatação/Markdown), reenvia como texto simples
+      // 1. Se falhar com erro de Markdown / parsing, reenvia em texto puro sem formatação
       if (!resJson.ok && payload.parse_mode) {
         delete payload.parse_mode;
         try {
@@ -802,7 +848,22 @@ Retorne ESTRITAMENTE em formato JSON com o schema:
             body: JSON.stringify(payload),
           });
           resJson = await response.json();
-        } catch (retryErr) {
+        } catch {
+          // ignore
+        }
+      }
+
+      // 2. Se ainda falhar e houver reply_markup (botões inline), tenta enviar sem botões
+      if (!resJson.ok && payload.reply_markup) {
+        delete payload.reply_markup;
+        try {
+          response = await fetch(`https://api.telegram.org/bot${cleanToken}/sendMessage`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+          });
+          resJson = await response.json();
+        } catch {
           // ignore
         }
       }
@@ -837,33 +898,14 @@ Retorne ESTRITAMENTE em formato JSON com o schema:
     }
   };
 
-  // Botões de ações rápidas sugeridas no Telegram
-  const getTelegramReplyKeyboard = () => {
-    return {
-      inline_keyboard: [
-        [
-          { text: '💰 Disponível Novembro', callback_data: 'qual valor disponivel no mês de novembro?' },
-          { text: '📊 Saldo Mês Atual', callback_data: 'qual o valor disponivel neste mês?' },
-        ],
-        [
-          { text: '💳 Faturas dos Cartões', callback_data: 'quais meus cartões de crédito e faturas?' },
-          { text: '💸 Gastos do Mês', callback_data: 'quais os gastos e despesas deste mês?' },
-        ],
-        [
-          { text: '❓ Ajuda & Comandos', callback_data: '/ajuda' },
-        ],
-      ],
-    };
-  };
-
-  // Gerenciador do loop de Long-Polling para receber mensagens 24/7
   let isPollingActive = false;
   let pollingAbortController: AbortController | null = null;
   let lastUpdateId = 0;
 
   const startTelegramPolling = () => {
     if (isPollingActive) return;
-    if (!serverTelegramConfig.botToken || !serverTelegramConfig.enabled) return;
+    const cleanToken = sanitizeBotToken(serverTelegramConfig.botToken);
+    if (!cleanToken || !serverTelegramConfig.enabled) return;
 
     isPollingActive = true;
     pollingAbortController = new AbortController();
@@ -874,9 +916,16 @@ Retorne ESTRITAMENTE em formato JSON com o schema:
     (async () => {
       while (isPollingActive && serverTelegramConfig.enabled && serverTelegramConfig.botToken) {
         try {
-          const url = `https://api.telegram.org/bot${serverTelegramConfig.botToken}/getUpdates?offset=${lastUpdateId}&timeout=10&allowed_updates=["message","callback_query"]`;
+          const token = sanitizeBotToken(serverTelegramConfig.botToken);
+          const url = `https://api.telegram.org/bot${token}/getUpdates?offset=${lastUpdateId}&timeout=10&allowed_updates=["message","callback_query"]`;
           const res = await fetch(url, { signal: pollingAbortController?.signal });
-          const data: any = await res.json();
+          const resText = await res.text();
+          let data: any = {};
+          try {
+            data = JSON.parse(resText);
+          } catch {
+            data = {};
+          }
 
           if (data && data.ok && Array.isArray(data.result)) {
             for (const update of data.result) {
@@ -888,18 +937,47 @@ Retorne ESTRITAMENTE em formato JSON com o schema:
                 const queryText = update.message.text;
                 const senderName = update.message.from?.first_name || update.message.from?.username || 'Usuário';
 
+                console.log(`[Telegram Bot] Mensagem recebida de ${senderName} (${chatId}): "${queryText}"`);
+
+                // Registra o usuário detectado para preencher o Chat ID automaticamente
+                latestDetectedChat = {
+                  chatId: String(chatId),
+                  name: senderName,
+                  username: update.message.from?.username || update.message.chat?.username,
+                  lastMessage: queryText,
+                  timestamp: new Date().toISOString(),
+                };
+
+                // Se o chat ID ainda não estava salvo, preenche automaticamente
+                if (!serverTelegramConfig.chatId) {
+                  serverTelegramConfig.chatId = String(chatId);
+                  saveConfigToDisk();
+                }
+
                 addTelegramLog('in', queryText, `${senderName} (${chatId})`);
+
+                // Envia indicador "digitando..." para feedback imediato no Telegram
+                try {
+                  fetch(`https://api.telegram.org/bot${token}/sendChatAction`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ chat_id: chatId, action: 'typing' }),
+                  }).catch(() => {});
+                } catch {
+                  // ignore
+                }
 
                 // Processa a consulta acessando o Orçamento e os Cartões em tempo real
                 const result = processTelegramQuery(queryText, serverFinanceData);
 
                 // Envia resposta de volta com botões rápidos
-                await sendTelegramMessage(
-                  serverTelegramConfig.botToken,
+                const sendResult = await sendTelegramMessage(
+                  token,
                   chatId,
                   result.text,
                   getTelegramReplyKeyboard()
                 );
+                console.log(`[Telegram Bot] Resposta enviada para ${chatId}:`, sendResult.ok ? 'Sucesso' : sendResult.error);
               }
 
               // 2. Clique em botão interativo (Callback Query)
@@ -908,9 +986,25 @@ Retorne ESTRITAMENTE em formato JSON com o schema:
                 const chatId = cb.message?.chat?.id;
                 const queryText = cb.data;
 
+                if (chatId) {
+                  const cbFrom = cb.from;
+                  const cbName = [cbFrom?.first_name, cbFrom?.last_name].filter(Boolean).join(' ') || cbFrom?.username || 'Usuário';
+                  latestDetectedChat = {
+                    chatId: String(chatId),
+                    name: cbName,
+                    username: cbFrom?.username,
+                    lastMessage: queryText,
+                    timestamp: new Date().toISOString(),
+                  };
+                  if (!serverTelegramConfig.chatId) {
+                    serverTelegramConfig.chatId = String(chatId);
+                    saveConfigToDisk();
+                  }
+                }
+
                 // Notifica o Telegram que o clique foi processado
                 try {
-                  await fetch(`https://api.telegram.org/bot${serverTelegramConfig.botToken}/answerCallbackQuery`, {
+                  await fetch(`https://api.telegram.org/bot${token}/answerCallbackQuery`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ callback_query_id: cb.id }),
@@ -921,9 +1015,21 @@ Retorne ESTRITAMENTE em formato JSON com o schema:
 
                 if (chatId) {
                   addTelegramLog('in', `[Botão] ${queryText}`, String(chatId));
+
+                  // Envia indicador "digitando..."
+                  try {
+                    fetch(`https://api.telegram.org/bot${token}/sendChatAction`, {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ chat_id: chatId, action: 'typing' }),
+                    }).catch(() => {});
+                  } catch {
+                    // ignore
+                  }
+
                   const result = processTelegramQuery(queryText, serverFinanceData);
                   await sendTelegramMessage(
-                    serverTelegramConfig.botToken,
+                    token,
                     chatId,
                     result.text,
                     getTelegramReplyKeyboard()
@@ -986,16 +1092,28 @@ Retorne ESTRITAMENTE em formato JSON com o schema:
     try {
       const { botToken, chatId, enabled, autoPolling } = req.body;
 
-      serverTelegramConfig.botToken = (botToken || '').trim();
+      const cleanToken = sanitizeBotToken(botToken);
+      serverTelegramConfig.botToken = cleanToken;
       serverTelegramConfig.chatId = (chatId || '').trim();
-      serverTelegramConfig.enabled = Boolean(enabled);
+      // Se um token foi configurado, ativa o atendimento por padrão para responder imediatamente
+      if (cleanToken) {
+        serverTelegramConfig.enabled = enabled !== false;
+      } else {
+        serverTelegramConfig.enabled = Boolean(enabled);
+      }
       serverTelegramConfig.autoPolling = autoPolling !== false;
 
       // Se um token foi fornecido, verifica sua validade e recupera o nome do bot
       if (serverTelegramConfig.botToken) {
         try {
           const testRes = await fetch(`https://api.telegram.org/bot${serverTelegramConfig.botToken}/getMe`);
-          const testJson: any = await testRes.json();
+          const testText = await testRes.text();
+          let testJson: any = {};
+          try {
+            testJson = JSON.parse(testText);
+          } catch {
+            testJson = {};
+          }
           if (testJson.ok && testJson.result) {
             serverTelegramConfig.botUsername = testJson.result.username;
             serverTelegramConfig.botFirstName = testJson.result.first_name;
@@ -1060,17 +1178,46 @@ Retorne ESTRITAMENTE em formato JSON com o schema:
   // Testa conexão com o BotFather via getMe
   app.post('/api/telegram/test-connection', async (req, res) => {
     try {
-      const rawToken = (req.body.botToken || serverTelegramConfig.botToken || '').trim();
-      const token = rawToken.replace(/^bot/i, '').trim();
+      const rawToken = req.body.botToken || serverTelegramConfig.botToken || '';
+      const token = sanitizeBotToken(rawToken);
 
       if (!token) {
-        return res.status(400).json({ success: false, error: 'Token do bot não fornecido. Cole o token do @BotFather.' });
+        return res.status(400).json({
+          success: false,
+          error: 'Token do bot não fornecido. Cole o token gerado pelo @BotFather no Telegram.',
+        });
       }
 
-      const response = await fetch(`https://api.telegram.org/bot${token}/getMe`);
-      const data: any = await response.json();
+      // Validação de formato amigável
+      if (!token.includes(':')) {
+        return res.status(400).json({
+          success: false,
+          error: 'Formato de token inválido. O token do Telegram contém números e letras separados por dois pontos (exemplo: 7123456789:AAFlkJg5k...). Verifique a mensagem do @BotFather.',
+        });
+      }
+
+      const response = await fetch(`https://api.telegram.org/bot${token}/getMe`, {
+        headers: { Accept: 'application/json' },
+      });
+      const resText = await response.text();
+      let data: any = {};
+      try {
+        data = JSON.parse(resText);
+      } catch (e) {
+        return res.status(400).json({
+          success: false,
+          error: `Resposta não compreendida do Telegram (status ${response.status}). Verifique o token digitado.`,
+        });
+      }
 
       if (data.ok && data.result) {
+        // Atualiza dados na configuração
+        serverTelegramConfig.botToken = token;
+        serverTelegramConfig.botUsername = data.result.username;
+        serverTelegramConfig.botFirstName = data.result.first_name;
+        serverTelegramConfig.lastConnectedAt = new Date().toISOString();
+        saveConfigToDisk();
+
         return res.json({
           success: true,
           bot: {
@@ -1080,15 +1227,21 @@ Retorne ESTRITAMENTE em formato JSON com o schema:
           },
         });
       } else {
-        const errorDesc = data.description || 'Token inválido ou não autorizado pelo Telegram.';
+        const errorDesc = String(data.description || 'Token inválido ou não autorizado pelo Telegram.');
+        let userFriendly = errorDesc;
+        if (errorDesc.toLowerCase().includes('unauthorized') || data.error_code === 401) {
+          userFriendly = 'Token não autorizado pelo Telegram. Verifique se copiou a chave completa gerada pelo @BotFather (sem espaços extras).';
+        } else if (data.error_code === 404 || errorDesc.toLowerCase().includes('not found')) {
+          userFriendly = 'Token não encontrado no Telegram. Verifique se o código do bot foi digitado corretamente.';
+        }
         return res.status(400).json({
           success: false,
-          error: errorDesc.includes('Unauthorized')
-            ? 'Token não autorizado pelo Telegram. Verifique se copiou a chave completa gerada pelo @BotFather.'
-            : errorDesc,
+          error: userFriendly,
+          telegramErrorCode: data.error_code,
         });
       }
     } catch (err: any) {
+      console.error('[Telegram] Erro ao testar conexão:', err);
       return res.status(500).json({ success: false, error: `Erro ao testar conexão: ${err.message}` });
     }
   });
@@ -1096,8 +1249,8 @@ Retorne ESTRITAMENTE em formato JSON com o schema:
   // Detecta automaticamente o Chat ID inspecionando mensagens recebidas pelo bot
   app.post('/api/telegram/detect-chat-id', async (req, res) => {
     try {
-      const rawToken = (req.body.botToken || serverTelegramConfig.botToken || '').trim();
-      const token = rawToken.replace(/^bot/i, '').trim();
+      const rawToken = req.body.botToken || serverTelegramConfig.botToken || '';
+      const token = sanitizeBotToken(rawToken);
 
       if (!token) {
         return res.status(400).json({
@@ -1106,40 +1259,118 @@ Retorne ESTRITAMENTE em formato JSON com o schema:
         });
       }
 
-      const response = await fetch(`https://api.telegram.org/bot${token}/getUpdates?limit=50`);
-      const data: any = await response.json();
-
-      if (!data.ok) {
-        return res.status(400).json({
-          success: false,
-          error: data.description || 'Falha ao conectar com o Telegram com o token informado.',
+      // 1. Se já capturamos alguma mensagem recentemente no polling em execução:
+      if (latestDetectedChat && latestDetectedChat.chatId) {
+        return res.json({
+          success: true,
+          chatId: latestDetectedChat.chatId,
+          name: latestDetectedChat.name,
+          username: latestDetectedChat.username,
+          lastMessage: latestDetectedChat.lastMessage,
         });
       }
 
-      const updates = Array.isArray(data.result) ? data.result : [];
-      // Procura a mensagem mais recente enviada ao bot
-      for (let i = updates.length - 1; i >= 0; i--) {
-        const u = updates[i];
-        const chat = u.message?.chat || u.callback_query?.message?.chat;
-        const from = u.message?.from || u.callback_query?.from;
-
-        if (chat && chat.id) {
-          const userName = [from?.first_name, from?.last_name].filter(Boolean).join(' ') || from?.username || 'Usuário';
-          return res.json({
-            success: true,
-            chatId: String(chat.id),
-            name: userName,
-            username: from?.username || chat.username,
-            lastMessage: u.message?.text || u.callback_query?.data || '',
-          });
-        }
+      // 2. Se polling está ativo, pausa momentaneamente para permitir getUpdates sem conflito 409
+      const wasPolling = isPollingActive;
+      if (wasPolling) {
+        stopTelegramPolling();
+        await new Promise((resolve) => setTimeout(resolve, 350));
       }
 
-      return res.status(404).json({
-        success: false,
-        error: 'Nenhuma mensagem recebida ainda no Telegram. Abra o Telegram, pesquise pelo seu bot, clique em "Iniciar" ou envie uma mensagem (ex: /start), e depois clique em "Detectar Chat ID" novamente.',
-      });
+      try {
+        // Tenta remover webhook pré-existente caso haja algum conflito
+        try {
+          await fetch(`https://api.telegram.org/bot${token}/deleteWebhook?drop_pending_updates=false`);
+        } catch {
+          // ignore
+        }
+
+        const response = await fetch(`https://api.telegram.org/bot${token}/getUpdates?limit=50`);
+        const resText = await response.text();
+        let data: any = {};
+        try {
+          data = JSON.parse(resText);
+        } catch {
+          data = {};
+        }
+
+        if (data.ok && Array.isArray(data.result) && data.result.length > 0) {
+          const updates = data.result;
+          // Procura a mensagem mais recente enviada ao bot
+          for (let i = updates.length - 1; i >= 0; i--) {
+            const u = updates[i];
+            const chat = u.message?.chat || u.callback_query?.message?.chat;
+            const from = u.message?.from || u.callback_query?.from;
+
+            if (chat && chat.id) {
+              const userName = [from?.first_name, from?.last_name].filter(Boolean).join(' ') || from?.username || 'Usuário';
+              const chatIdStr = String(chat.id);
+
+              latestDetectedChat = {
+                chatId: chatIdStr,
+                name: userName,
+                username: from?.username || chat.username,
+                lastMessage: u.message?.text || u.callback_query?.data || '',
+                timestamp: new Date().toISOString(),
+              };
+
+              serverTelegramConfig.chatId = chatIdStr;
+              saveConfigToDisk();
+
+              return res.json({
+                success: true,
+                chatId: chatIdStr,
+                name: userName,
+                username: from?.username || chat.username,
+                lastMessage: u.message?.text || u.callback_query?.data || '',
+              });
+            }
+          }
+        }
+
+        // Se já tínhamos um Chat ID previamente salvo na configuração:
+        if (serverTelegramConfig.chatId) {
+          return res.json({
+            success: true,
+            chatId: serverTelegramConfig.chatId,
+            name: serverTelegramConfig.botFirstName || 'Usuário',
+            username: serverTelegramConfig.botUsername,
+            lastMessage: 'Recuperado das configurações salvas',
+          });
+        }
+
+        // Se getUpdates deu erro (por ex: token inválido ou outro conflito)
+        if (!data.ok) {
+          const desc = String(data.description || '');
+          if (desc.toLowerCase().includes('conflict')) {
+            return res.status(409).json({
+              success: false,
+              error: 'O serviço de atendimento está em escuta. Abra o Telegram, envie uma mensagem (ex: /start ou "Oi") para o seu bot e clique em "Detectar meu Chat ID" novamente.',
+            });
+          }
+          if (desc.toLowerCase().includes('unauthorized')) {
+            return res.status(401).json({
+              success: false,
+              error: 'Token não autorizado pelo Telegram. Verifique se o Token do Bot está correto no campo acima.',
+            });
+          }
+          return res.status(400).json({
+            success: false,
+            error: desc || 'Falha ao buscar atualizações no Telegram.',
+          });
+        }
+
+        return res.status(404).json({
+          success: false,
+          error: 'Nenhuma mensagem recebida ainda no Telegram. Abra o Telegram, pesquise pelo seu bot, clique em "Iniciar" ou envie uma mensagem (ex: /start ou "Olá"), e depois clique em "Detectar meu Chat ID" novamente.',
+        });
+      } finally {
+        if (wasPolling && serverTelegramConfig.enabled && serverTelegramConfig.botToken) {
+          startTelegramPolling();
+        }
+      }
     } catch (err: any) {
+      console.error('[Telegram] Erro em detect-chat-id:', err);
       return res.status(500).json({
         success: false,
         error: `Erro ao detectar Chat ID: ${err.message}`,
@@ -1150,8 +1381,8 @@ Retorne ESTRITAMENTE em formato JSON com o schema:
   // Envia mensagem de teste diretamente para o Telegram do usuário
   app.post('/api/telegram/send-test', async (req, res) => {
     try {
-      const rawToken = (req.body.botToken || serverTelegramConfig.botToken || '').trim();
-      const token = rawToken.replace(/^bot/i, '').trim();
+      const rawToken = req.body.botToken || serverTelegramConfig.botToken || '';
+      const token = sanitizeBotToken(rawToken);
       const rawChat = (req.body.chatId || serverTelegramConfig.chatId || '').trim();
       const chatId = rawChat.replace(/^@/, '').trim();
 
@@ -1173,7 +1404,7 @@ Retorne ESTRITAMENTE em formato JSON com o schema:
       if (isNaN(Number(chatId))) {
         return res.status(400).json({
           success: false,
-          error: `Chat ID inválido ("${rawChat}"). O Telegram exige o ID numérico (ex: 123456789) para envio direto. Envie /start para o seu bot e clique no botão "Detectar Chat ID" para preencher automaticamente!`,
+          error: `Chat ID inválido ("${rawChat}"). O Telegram exige o ID numérico (ex: 123456789) para envio direto. Envie /start para o seu bot e clique no botão "Detectar meu Chat ID" para preencher automaticamente!`,
         });
       }
 

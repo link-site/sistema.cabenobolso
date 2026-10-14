@@ -71,10 +71,29 @@ export function useFirestoreFinance() {
       .then((res) => res.json())
       .then((data) => {
         if (data.success && data.config) {
-          setTelegramConfig((prev) => ({
-            ...prev,
-            ...data.config,
-          }));
+          setTelegramConfig((prev) => {
+            const hasServerToken = Boolean(data.config.botToken && data.config.botToken.trim());
+            const hasPrevToken = Boolean(prev.botToken && prev.botToken.trim());
+
+            if (hasServerToken) {
+              return {
+                ...prev,
+                ...data.config,
+              };
+            } else if (hasPrevToken) {
+              // Restaura a configuração do cliente no servidor para iniciar a escuta
+              fetch('/api/telegram/config', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(prev),
+              }).catch(() => {});
+              return prev;
+            }
+            return {
+              ...prev,
+              ...data.config,
+            };
+          });
         }
       })
       .catch(() => {});
@@ -384,7 +403,33 @@ export function useFirestoreFinance() {
       }
     );
 
-    unsubscribesRef.current = [unsubTx, unsubCards, unsubPurchases, unsubTags, unsubMarket, unsubMarketSearches];
+    // Listen to Telegram Settings
+    const telegramSettingsRef = doc(db, 'users', userId, 'settings', 'telegram');
+    const unsubTelegram = onSnapshot(
+      telegramSettingsRef,
+      (docSnap) => {
+        if (docSnap.exists()) {
+          const tData = docSnap.data() as TelegramBotConfig;
+          if (tData && tData.botToken) {
+            setTelegramConfig(tData);
+            try {
+              localStorage.setItem(LOCAL_STORAGE_KEYS.TELEGRAM, JSON.stringify(tData));
+            } catch {}
+            // Sincroniza com backend para manter polling ativo
+            fetch('/api/telegram/config', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(tData),
+            }).catch(() => {});
+          }
+        }
+      },
+      (error) => {
+        console.warn('Firestore Telegram settings listener error:', error);
+      }
+    );
+
+    unsubscribesRef.current = [unsubTx, unsubCards, unsubPurchases, unsubTags, unsubMarket, unsubMarketSearches, unsubTelegram];
 
     return () => {
       unsubscribesRef.current.forEach((unsub) => unsub());
